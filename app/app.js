@@ -25,11 +25,13 @@ function img(base, cls = 'thumb', alt = '', cardId = null) { return cardId && CU
 // Imágenes propias (fotos que sube el usuario), guardadas en el navegador
 const CUSTOM_IMG = {};
 // Logo del set: misma carpeta que las imágenes de sus cartas en TCGdex (logo.webp); español con respaldo en inglés
-function setLogo(base, cls, style = '') {
-  if (!base) return `<div class="${cls}" style="${style}"></div>`;
+function setLogo(base, cls, name = '') {
+  // Si TCGdex aún no tiene logo (sets muy nuevos), se muestra un distintivo con el nombre
+  const badge = `<span class="fbn logofb ${cls === 'biglogo' ? 'big' : ''}" ${base ? 'style="display:none"' : ''}>${esc(name)}</span>`;
+  if (!base) return badge;
   const dir = base.replace(/\/[^/]+$/, '');
   const urls = dir.includes('/en/') ? [dir.replace('/en/', '/es/') + '/logo.webp', dir + '/logo.webp'] : [dir + '/logo.webp', ''];
-  return `<img class="${cls}" style="${style}" loading="lazy" alt="" src="${esc(urls[0])}" data-fb="${esc(urls[1])}" onerror="${IMG_ERR}">`;
+  return `<img class="${cls}" loading="lazy" alt="" src="${esc(urls[0])}" data-fb="${esc(urls[1])}" onerror="${IMG_ERR.replace("this.style.visibility='hidden'", "this.style.display='none'")}">` + badge;
 }
 // Enlace a Cardmarket: listado de singles del set de la carta, filtrado por su nombre
 function cmLink(v, c) {
@@ -74,7 +76,7 @@ function loadCol() {
   return { cards: {}, sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {} };
 }
 let COL = loadCol();
-function saveCol() { localStorage.setItem(STORE_KEY, JSON.stringify(COL)); }
+function saveCol() { COL.updatedAt = Date.now(); localStorage.setItem(STORE_KEY, JSON.stringify(COL)); if (typeof schedulePush === 'function') schedulePush(); }
 
 /* ---------- base de datos (IndexedDB) ---------- */
 function idb() {
@@ -94,6 +96,7 @@ function openDb(bytes) {
   if (!ok.length) throw new Error('No parece la base de datos de 9Bolsillos');
   DB = db; PRICE_DATE = ok[0].values[0][0];
   HAS_HISTORY = db.exec("SELECT 1 FROM sqlite_master WHERE name='history'").length > 0;
+  HAS_FOIL = db.exec("SELECT 1 FROM pragma_table_info('card_variants') WHERE name='foil'").length > 0;
   if (!db.exec("SELECT 1 FROM pragma_table_info('cards') WHERE name='illustrator'").length) throw new Error('Base de datos antigua: carga la versión nueva (con ilustradores)');
 }
 
@@ -104,11 +107,12 @@ let PRICE_MODE = (() => { try { return localStorage.getItem('9b.priceMode') || '
 const PRICE_LABEL = () => PRICE_MODE === 'low' ? 'Oferta más baja en Cardmarket' : 'Tendencia en Cardmarket';
 function vPrice(v) {
   if (!v) return null;
-  if (v.variant === 'reverse') return PRICE_MODE === 'low' ? (v.low_holo ?? v.trend_holo ?? v.avg30_holo ?? null) : (v.trend_holo ?? v.avg30_holo ?? v.low_holo ?? null);
+  if (isRevHolo(v)) return PRICE_MODE === 'low' ? (v.low_holo ?? v.trend_holo ?? v.avg30_holo ?? null) : (v.trend_holo ?? v.avg30_holo ?? v.low_holo ?? null);
   return PRICE_MODE === 'low' ? (v.low ?? v.trend ?? v.avg30 ?? null) : (v.trend ?? v.avg30 ?? v.low ?? null);
 }
 function rPrice(r) { return !r ? null : PRICE_MODE === 'low' ? (r.low ?? r.trend ?? r.avg30 ?? null) : (r.trend ?? r.avg30 ?? r.low ?? null); }
-const VSQL = `SELECT v.card_id, v.cm_product_id, v.variant, v.subtype, v.stamp, v.ambiguous,
+let HAS_FOIL = false;
+const VSQL_ = () => `SELECT v.card_id, v.cm_product_id, v.variant, v.subtype, v.stamp, v.ambiguous,${HAS_FOIL ? ' v.foil, v.langs,' : ''}
   p.low, p.trend, p.avg, p.avg1, p.avg7, p.avg30, p.low_holo, p.trend_holo, p.avg7_holo, p.avg30_holo
   FROM card_variants v LEFT JOIN prices p ON p.cm_product_id = v.cm_product_id`;
 function variantsOf(cardIds) {
@@ -116,11 +120,26 @@ function variantsOf(cardIds) {
   const out = {};
   for (let i = 0; i < cardIds.length; i += 400) {
     const part = cardIds.slice(i, i + 400);
-    q(`${VSQL} WHERE v.card_id IN (${part.map(() => '?').join(',')})`, part).forEach(v => (out[v.card_id] ||= []).push(v));
+    q(`${VSQL_()} WHERE v.card_id IN (${part.map(() => '?').join(',')})`, part).forEach(v => (out[v.card_id] ||= []).push(v));
   }
+  Object.values(out).forEach(markPatterns);
   return out;
 }
-const vLabel = v => [v.variant === 'normal' ? 'Normal' : v.variant === 'reverse' ? 'Reverse holo' : v.variant === 'holo' ? 'Holo' : v.variant || 'Estándar',
+// Tipos de foil que indica TCGdex (Poké Ball, Master Ball, cosmos…)
+const FOILS = { pokeball: 'Poké Ball', masterball: 'Master Ball', greatball: 'Super Ball', ultraball: 'Ultra Ball', loveball: 'Love Ball', friendball: 'Friend Ball',
+  quickball: 'Quick Ball', duskball: 'Dusk Ball', cosmos: 'Cosmos', tinsel: 'Tinsel', 'cracked-ice': 'Cracked Ice', energy: 'Energía', rainbow: 'Arcoíris', gold: 'Oro',
+  league: 'Liga', galaxy: 'Galaxia', starlight: 'Starlight', mirror: 'Espejo', 'team-rocket': 'Team Rocket', glitter: 'Brillo', 'player-reward': 'Player Rewards', 'professor-program': 'Professor Program' };
+// Una reverse comparte producto con la carta normal (precio "reverse" de ese producto) o tiene producto propio en Cardmarket (precio principal)
+const isRevHolo = v => !!v && v.variant === 'reverse' && v.ownProduct !== true;
+const PATTERNS = ['Poké Ball', 'Master Ball'];
+function markPatterns(vs) {
+  const shared = new Set(vs.filter(v => v.variant !== 'reverse').map(v => v.cm_product_id));
+  const own = vs.filter(v => v.variant === 'reverse' && !shared.has(v.cm_product_id) && shared.size);
+  own.forEach(v => { v.ownProduct = true; });
+  if (!HAS_FOIL || !vs.some(v => v.foil)) own.sort((a, b) => a.cm_product_id - b.cm_product_id).forEach((v, i) => { v.pattern = PATTERNS[i] || ('patrón ' + (i + 1)); });
+  vs.forEach(v => { if (v.foil) v.pattern = FOILS[v.foil] || v.foil; if (v.langs && !v.langs.split(',').includes('es')) v.notEs = true; });
+}
+const vLabel = v => [v.pattern ? (v.variant === 'reverse' ? 'Reverse ' : v.variant === 'holo' ? 'Holo ' : '') + v.pattern : v.variant === 'normal' ? 'Normal' : v.variant === 'reverse' ? 'Reverse holo' : v.variant === 'holo' ? 'Holo' : v.variant || 'Estándar',
   v.subtype, v.stamp].filter(Boolean).join(' · ');
 function cheapest(vs) { let b = null; (vs || []).forEach(v => { const p = vPrice(v); if (p != null && (b == null || p < b)) b = p; }); return b; }
 function ownedVariant(cardId, vs) {
@@ -182,7 +201,7 @@ function viewHome() {
   const want = {}; owned.forEach(o => { if (o.v) (want[o.v.cm_product_id] ||= []).push(o); });
   hist.forEach(h => {
     let s = 0;
-    (want[h.cm_product_id] || []).forEach(o => { const c = o.v.variant === 'reverse' ? h.trend_holo_c : h.trend_c; if (c != null) s += c / 100 * o.qty; });
+    (want[h.cm_product_id] || []).forEach(o => { const c = isRevHolo(o.v) ? h.trend_holo_c : h.trend_c; if (c != null) s += c / 100 * o.qty; });
     if (COL.sealed[h.cm_product_id] && h.trend_c != null) s += h.trend_c / 100 * (COL.sealed[h.cm_product_id].qty || 1);
     byDay[h.day] = (byDay[h.day] || 0) + s;
   });
@@ -195,7 +214,7 @@ function viewHome() {
 
   // mayores subidas: precio actual vs media de 30 días (hasta tener historial)
   const movers = owned.filter(o => o.v && o.p != null).map(o => {
-    const base = o.v.variant === 'reverse' ? o.v.avg30_holo : o.v.avg30;
+    const base = isRevHolo(o.v) ? o.v.avg30_holo : o.v.avg30;
     return Object.assign(o, { ch: base ? (o.p - base) / base * 100 : null });
   }).filter(o => o.ch != null && o.p >= 1).sort((a, b) => b.ch - a.ch).slice(0, 5);
   const names = {};
@@ -237,7 +256,7 @@ function viewSets() {
     const list = rows.filter(r => okLang(r) && (!ql || (r.name || '').toLowerCase().includes(ql) || (r.serie || '').toLowerCase().includes(ql)));
     document.getElementById('setlist').innerHTML = list.map(r => {
       const o = ownCount[r.set_id] || 0, p = Math.round(o / r.n * 100);
-      return `<a class="item" href="#/set/${encodeURIComponent(r.set_id)}"><div class="logobox">${setLogo(r.ib, 'setlogo')}</div><div class="col" style="flex:1"><b>${esc(r.name)}</b><span class="muted">${esc(r.serie)} · ${r.release_date ? esc(r.release_date.slice(0, 4)) : ''} · ${r.n} cartas${setsFilter === 'otros' || setsFilter === 'mine' ? ' · ' + esc(LANGS[r.lang] || r.lang) : ''}</span>
+      return `<a class="item" href="#/set/${encodeURIComponent(r.set_id)}"><div class="logobox">${setLogo(r.ib, 'setlogo', r.name)}</div><div class="col" style="flex:1"><b>${esc(r.name)}</b><span class="muted">${esc(r.serie)} · ${r.release_date ? esc(r.release_date.slice(0, 4)) : ''} · ${r.n} cartas${setsFilter === 'otros' || setsFilter === 'mine' ? ' · ' + esc(LANGS[r.lang] || r.lang) : ''}</span>
         ${o ? `<div class="bar" style="margin-top:4px"><div style="width:${p}%"></div></div>` : ''}</div><span class="muted">${o ? `${o}/${r.n}` : ''}</span></a>`;
     }).join('') || '<p class="muted">No hay sets que coincidan.</p>';
   };
@@ -258,6 +277,10 @@ const SORTS = { set: [['num', 'Número'], ['price_desc', 'Precio: mayor primero'
 const albumPage = {};
 /* ---------- máster set: cada versión (normal, reverse, 1ª edición…) cuenta aparte ---------- */
 let MASTER = false;
+// Mostrar o no lo que no existe en español (cartas solo inglesas, versiones de otros idiomas, lo que ocultes a mano)
+let SHOW_NON_ES = (() => { try { return localStorage.getItem('9b.showNonEs') === '1'; } catch (e) { return false; } })();
+const hiddenCard = c => !SHOW_NON_ES && ((COL.hide || {})[c.card_id] || c.no_es);
+const hiddenVariant = (c, v) => !SHOW_NON_ES && v && ((COL.hide || {})[c.card_id + '|' + vkey(v)] || v.notEs || ((COL.setHide || {})[c.set_id] || []).includes(vLabel(v)));
 const vkey = v => v ? `${v.cm_product_id}|${v.variant || ''}|${v.subtype || ''}|${v.stamp || ''}` : 'std';
 function uniqVariants(vs) { const seen = new Set(), out = []; (vs || []).forEach(v => { const k = vkey(v); if (!seen.has(k)) { seen.add(k); out.push(v); } }); return out.length ? out : [null]; }
 function ownedKeys(id, vs) {
@@ -284,11 +307,11 @@ function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
   const pr = c => { const p = COL.cards[c.card_id] ? vPrice(ownedVariant(c.card_id, vmap[c.card_id])) : cheapest(vmap[c.card_id]); return p ?? -1; };
   const num = c => [parseInt(c.local_id, 10) || 0, c.local_id || ''];
   const byRel = (a, b) => (a.release_date || '').localeCompare(b.release_date || '') || (a.set_id || '').localeCompare(b.set_id || '') || num(a)[0] - num(b)[0];
-  const cards = cards0.slice().sort(mode === 'new' ? (a, b) => byRel(b, a) : mode === 'old' ? byRel : mode === 'price_desc' ? (a, b) => pr(b) - pr(a) : mode === 'price_asc' ? (a, b) => (pr(a) < 0) - (pr(b) < 0) || pr(a) - pr(b) : mode === 'name' ? (a, b) => (a.name || '').localeCompare(b.name || '', 'es') : (a, b) => num(a)[0] - num(b)[0] || num(a)[1].localeCompare(num(b)[1]));
+  const cards = cards0.filter(c => !hiddenCard(c)).sort(mode === 'new' ? (a, b) => byRel(b, a) : mode === 'old' ? byRel : mode === 'price_desc' ? (a, b) => pr(b) - pr(a) : mode === 'price_asc' ? (a, b) => (pr(a) < 0) - (pr(b) < 0) || pr(a) - pr(b) : mode === 'name' ? (a, b) => (a.name || '').localeCompare(b.name || '', 'es') : (a, b) => num(a)[0] - num(b)[0] || num(a)[1].localeCompare(num(b)[1]));
   const perSpread = () => window.innerWidth >= 760 ? 2 : 1;
   // Entradas: una por carta (set básico) o una por versión (máster set)
   const entries = () => MASTER
-    ? cards.flatMap(c => uniqVariants(vmap[c.card_id]).map(v => ({ c, v, k: vkey(v) })))
+    ? cards.flatMap(c => uniqVariants(vmap[c.card_id]).filter(v => !(v && v.stamp) && !hiddenVariant(c, v)).map(v => ({ c, v, k: vkey(v) })))
     : cards.map(c => ({ c, v: null, k: null }));
   const owns = e => e.k ? ownedKeys(e.c.card_id, vmap[e.c.card_id]).has(e.k) : !!COL.cards[e.c.card_id];
   const priceOf = e => e.k ? vPrice(e.v) : (COL.cards[e.c.card_id] ? vPrice(ownedVariant(e.c.card_id, vmap[e.c.card_id])) : cheapest(vmap[e.c.card_id]));
@@ -305,7 +328,7 @@ function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
       const vl = e.k ? (e.v ? vLabel(e.v) : 'Estándar') : '';
       return `<div class="tile ${has ? 'has' : 'miss'}" data-open="${esc(c.card_id)}" title="${pocket ? esc(pocket) : ''}">
         <div class="img"><span class="fbn" ${c.image_base || CUSTOM_IMG[c.card_id] ? 'style="display:none"' : ''}>${esc(c.name)}</span>${cardImg(c, 'low', '', '')}
-          ${e.v && e.v.variant === 'reverse' ? '<span class="vtag">Reverse</span>' : e.k && e.v && e.v.stamp ? `<span class="vtag">${esc(e.v.stamp)}</span>` : ''}
+          ${e.v && e.v.pattern ? `<span class="vtag">${esc(e.v.pattern)}</span>` : e.v && e.v.variant === 'reverse' ? '<span class="vtag">Reverse</span>' : e.k && e.v && e.v.stamp ? `<span class="vtag">${esc(e.v.stamp)}</span>` : ''}
           <button class="own" data-own="${i}" aria-label="${has ? 'Quitar de' : 'Añadir a'} mi colección: ${esc(c.name)} ${esc(vl)}">${has ? '✓' : '＋'}</button></div>
         <span class="num">${esc(opts.sub ? opts.sub(c) : c.local_id)}</span>
         <span class="nm">${esc(c.name)}</span>${vl ? `<span class="num" style="font-weight:600">${esc(vl)}</span>` : ''}<span class="pr">${eur(pr)}</span></div>`;
@@ -358,22 +381,30 @@ function wireControls(rerender) {
 function viewSet(setId) {
   const s = q(`SELECT set_id, lang, COALESCE(name_es,name_en,name_ja,name_local) name, serie, release_date, card_count, cm_expansion_id FROM sets WHERE set_id=?`, [setId])[0];
   if (!s) { $view.innerHTML = '<p>Set no encontrado.</p>'; return; }
-  const cards = q(`SELECT c.card_id, c.set_id, c.local_id, ${NAME} name, c.rarity, c.image_base FROM cards c WHERE c.set_id=?
+  const cards = q(`SELECT c.card_id, c.set_id, c.local_id, ${NAME} name, c.rarity, c.image_base,
+    (c.name_es IS NULL AND s.lang='es' AND s.release_date >= '2019') no_es FROM cards c JOIN sets s USING(set_id) WHERE c.set_id=?
     ORDER BY CAST(c.local_id AS INTEGER), c.local_id`, [setId]);
   const ib = (cards.find(c => c.image_base) || {}).image_base;
   const vmap = variantsOf(cards.map(c => c.card_id));
   const sealed = s.cm_expansion_id ? q(`SELECT p.cm_product_id, p.name, p.category, pr.trend, pr.avg30, pr.low FROM cm_products p LEFT JOIN prices pr USING(cm_product_id)
     WHERE p.kind='sealed' AND p.cm_expansion_id=? ORDER BY pr.trend DESC`, [s.cm_expansion_id]) : [];
+  const vtypes = [...new Set(cards.flatMap(c => uniqVariants(vmap[c.card_id]).filter(v => v && !v.stamp).map(vLabel)))];
+  const hidT = (COL.setHide || {})[setId] || [];
+  const nHidden = cards.filter(c => (COL.hide || {})[c.card_id] || c.no_es).length;
   $view.innerHTML = `<div class="stack">
     <div class="row"><a href="#/sets" class="pill" style="display:flex;align-items:center">←</a></div>
-    <div class="sethero">${setLogo(ib, 'biglogo')}<div class="col" style="align-items:center;text-align:center"><h1>${esc(s.name)}</h1><span class="muted">${esc(s.serie)} · ${esc(s.release_date || '')} · ${esc(LANGS[s.lang] || s.lang)}</span></div></div>
+    <div class="sethero"><div class="herologo">${setLogo(ib, 'biglogo', s.name)}</div><div class="col" style="align-items:center;text-align:center"><h1>${esc(s.name)}</h1><span class="muted">${esc(s.serie)} · ${esc(s.release_date || '')} · ${esc(LANGS[s.lang] || s.lang)}</span></div></div>
     <div class="card col" style="gap:8px" id="sethead"></div>
     ${browserControls()}
+    ${MASTER ? `<div class="col" style="gap:6px"><span class="muted" style="font-size:13px">Versiones que cuentan en este set (desmarca las que no existen en tu idioma):</span>
+      <div class="pills">${vtypes.map(t => `<button class="pill ${hidT.includes(t) ? '' : 'on'}" data-vt="${esc(t)}">${esc(t)}</button>`).join('')}</div></div>` : ''}
+    ${!SHOW_NON_ES && nHidden ? `<span class="muted" style="font-size:13px">${nHidden} carta${nHidden > 1 ? 's' : ''} oculta${nHidden > 1 ? 's' : ''} porque no existe${nHidden > 1 ? 'n' : ''} en español. <a href="#/settings">Cambiar en Ajustes</a></span>` : ''}
     <div id="grid"></div>
     ${sealed.length ? `<div class="col"><h2>Producto sellado</h2><div class="list">${sealed.map(x => `<div class="item"><div class="col" style="flex:1"><b>${esc(x.name)}</b><span class="muted">${esc(x.category.replace('Pokémon ', ''))}</span></div>
       <b>${eur(rPrice(x))}</b><button class="pill ${COL.sealed[x.cm_product_id] ? 'on' : ''}" data-sealed="${x.cm_product_id}">${COL.sealed[x.cm_product_id] ? '✓ Tengo ' + (COL.sealed[x.cm_product_id].qty || 1) : '＋'}</button></div>`).join('')}</div></div>` : ''}
     <p class="muted">Precios: ${PRICE_LABEL().toLowerCase()}${s.lang === 'es' ? ' (español e inglés juntos)' : ''}.</p></div>`;
   wireControls(() => viewSet(setId));
+  $view.querySelectorAll('[data-vt]').forEach(b => b.onclick = () => { COL.setHide ||= {}; const l = COL.setHide[setId] ||= []; const t = b.dataset.vt; const i = l.indexOf(t); if (i >= 0) l.splice(i, 1); else l.push(t); if (!l.length) delete COL.setHide[setId]; saveCol(); viewSet(setId); });
   $view.querySelectorAll('[data-sealed]').forEach(b => b.onclick = () => {
     const id = b.dataset.sealed, cur = COL.sealed[id];
     if (!cur) COL.sealed[id] = { qty: 1, set: setId };
@@ -415,6 +446,7 @@ function viewIllustrators() {
 }
 function viewIllustrator(name) {
   const cards = q(`SELECT c.card_id, c.set_id, c.local_id, ${NAME} name, c.rarity, c.image_base, s.lang, s.release_date,
+    (c.name_es IS NULL AND s.lang='es' AND s.release_date >= '2019') no_es,
     COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id)
     WHERE c.illustrator = ? COLLATE NOCASE AND ${langCond(illLang)} ORDER BY s.release_date, s.set_id, CAST(c.local_id AS INTEGER)`, [name]);
   const vmap = variantsOf(cards.map(c => c.card_id));
@@ -443,8 +475,8 @@ function viewCard(cardId) {
   const idx = order.indexOf(cardId), albumPos = idx >= 0 ? `Álbum del set: página ${Math.floor(idx / 9) + 1}, bolsillo ${idx % 9 + 1}` : '';
   let sel = ownedVariant(cardId, vs) || vs.slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0] || null;
   const draw = () => {
-    const h = sel ? historyFor([sel.cm_product_id]).map(r => [r.day, (sel.variant === 'reverse' ? r.trend_holo_c : r.trend_c)]).filter(r => r[1] != null).map(r => [r[0], r[1] / 100]) : [];
-    const p = vPrice(sel), hol = sel && sel.variant === 'reverse';
+    const h = sel ? historyFor([sel.cm_product_id]).map(r => [r.day, (isRevHolo(sel) ? r.trend_holo_c : r.trend_c)]).filter(r => r[1] != null).map(r => [r[0], r[1] / 100]) : [];
+    const p = vPrice(sel), hol = isRevHolo(sel);
     const al = sel ? COL.alerts[sel.cm_product_id + '|' + (sel.variant || '')] : null;
     const sl = COL.sell[cardId];
     const uv = uniqVariants(vs).filter(Boolean), ok = ownedKeys(cardId, vs);
@@ -465,7 +497,8 @@ function viewCard(cardId) {
         <tr><td>${hol ? 'Reverse holo' : 'Precio'}</td><td>${eur(hol ? sel.low_holo : sel.low)}</td><td>${eur(hol ? sel.trend_holo : sel.trend)}</td><td>${eur(hol ? sel.avg7_holo : sel.avg7)}</td><td>${eur(hol ? sel.avg30_holo : sel.avg30)}</td></tr></table>
         <a style="display:inline-block;margin-top:10px" target="_blank" rel="noopener" href="${cmLink(sel, c)}">Ver en Cardmarket ↗</a><span class="muted" style="font-size:12px;display:block">Abre esta carta dentro de su set; si hay varias versiones, elige la de la misma rareza.</span></div>` : ''}
       <div class="col" style="gap:8px"><h2>Evolución del precio</h2>${chartSvg(h, 700, 140)}</div>
-      ${uv.length > 1 ? `<div class="card col" style="gap:8px"><b>Versiones para el máster set</b>${uv.map((v, i) => `<label class="row" style="min-height:40px;cursor:pointer"><input type="checkbox" data-mv="${i}" ${ok.has(vkey(v)) ? 'checked' : ''} style="width:20px;height:20px;accent-color:#3DDC97"><span style="flex:1">${esc(v ? vLabel(v) : 'Estándar')}</span><b>${eur(vPrice(v))}</b></label>`).join('')}</div>` : ''}
+      ${uv.length > 1 ? `<div class="card col" style="gap:8px"><b>Versiones para el máster set</b>${uv.map((v, i) => { const hv = (COL.hide || {})[cardId + '|' + vkey(v)]; return `<div class="row" style="min-height:40px;${hv ? 'opacity:.45' : ''}"><label class="row" style="flex:1;cursor:pointer"><input type="checkbox" data-mv="${i}" ${ok.has(vkey(v)) ? 'checked' : ''} style="width:20px;height:20px;accent-color:#3DDC97"><span style="flex:1">${esc(v ? vLabel(v) : 'Estándar')}${v && v.notEs ? ' <span class="muted">(no sale en español)</span>' : ''}${v && v.stamp ? ' <span class="muted">(promo con sello, fuera del máster set)</span>' : ''}</span><b>${eur(vPrice(v))}</b></label><button class="pill" style="font-size:12px;min-height:34px" data-hv="${i}">${hv ? 'Mostrar' : 'No existe'}</button></div>`; }).join('')}</div>` : ''}
+      <button class="pill" id="hidecard" style="align-self:flex-start;font-size:13px">${(COL.hide || {})[cardId] ? 'Volver a mostrar esta carta en el set' : 'Esta carta no existe en español: ocultarla del set'}</button>
       <div class="card col" style="gap:12px"><b>${e ? 'En tu colección' : 'No la tienes'}</b>
         ${e ? `<div class="row" style="flex-wrap:wrap"><label class="f">Cantidad<input type="number" id="qty" min="1" value="${e.qty || 1}" style="width:90px"></label>
           <label class="f">Precio de compra (€/ud)<input type="number" id="buy" step="0.01" min="0" value="${e.buy ?? ''}" style="width:150px"></label></div>
@@ -481,9 +514,11 @@ function viewCard(cardId) {
         : `<span class="muted">Precio sugerido: ${eur(p)} (tendencia) · mínimo actual ${eur(hol ? sel && sel.low_holo : sel && sel.low)}</span><button class="btn sec" id="sell">Poner a la venta</button>`}</div>` : ''}
     </div>`;
     $view.querySelectorAll('[data-mv]').forEach(x => x.onchange = () => { toggleVariant(cardId, c.set_id, uv[+x.dataset.mv], vs); viewCard(cardId); });
-    const ci = document.getElementById('cimg'); if (ci) ci.onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const u = await resizeImage(f); CUSTOM_IMG[cardId] = u; await idbPut('img:' + cardId, u); toast('Imagen guardada'); draw(); } catch (e) { alert(e.message); } };
-    const cu = document.getElementById('curl'); if (cu) cu.onclick = async () => { const u = prompt('Pega el enlace de una imagen de la carta (https://…)'); if (!u || !/^https:\/\//.test(u.trim())) return; CUSTOM_IMG[cardId] = u.trim(); await idbPut('img:' + cardId, u.trim()); draw(); };
-    const cd = document.getElementById('cdel'); if (cd) cd.onclick = async () => { delete CUSTOM_IMG[cardId]; await idbDel('img:' + cardId); draw(); };
+    $view.querySelectorAll('[data-hv]').forEach(b => b.onclick = () => { COL.hide ||= {}; const k = cardId + '|' + vkey(uv[+b.dataset.hv]); if (COL.hide[k]) delete COL.hide[k]; else COL.hide[k] = 1; saveCol(); viewCard(cardId); });
+    const hc = document.getElementById('hidecard'); if (hc) hc.onclick = () => { COL.hide ||= {}; if (COL.hide[cardId]) delete COL.hide[cardId]; else COL.hide[cardId] = 1; saveCol(); toast(COL.hide[cardId] ? 'Oculta del set' : 'Visible de nuevo'); viewCard(cardId); };
+    const ci = document.getElementById('cimg'); if (ci) ci.onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const u = await resizeImage(f); CUSTOM_IMG[cardId] = u; await idbPut('img:' + cardId, u); imgsDirty = true; saveCol(); toast('Imagen guardada'); draw(); } catch (e) { alert(e.message); } };
+    const cu = document.getElementById('curl'); if (cu) cu.onclick = async () => { const u = prompt('Pega el enlace de una imagen de la carta (https://…)'); if (!u || !/^https:\/\//.test(u.trim())) return; CUSTOM_IMG[cardId] = u.trim(); await idbPut('img:' + cardId, u.trim()); imgsDirty = true; saveCol(); draw(); };
+    const cd = document.getElementById('cdel'); if (cd) cd.onclick = async () => { delete CUSTOM_IMG[cardId]; await idbDel('img:' + cardId); imgsDirty = true; saveCol(); draw(); };
     const vsel = document.getElementById('vsel'); if (vsel) vsel.onchange = () => { sel = vs[+vsel.value]; if (COL.cards[cardId]) { COL.cards[cardId].cm = sel.cm_product_id; COL.cards[cardId].variant = sel.variant; saveCol(); } draw(); };
     const add = document.getElementById('add'); if (add) add.onclick = () => { COL.cards[cardId] = { set: c.set_id, cm: sel ? sel.cm_product_id : null, variant: sel ? sel.variant : null, qty: 1 }; saveCol(); viewCard(cardId); };
     const save = document.getElementById('save'); if (save) save.onclick = () => { const b = document.getElementById('buy').value; Object.assign(COL.cards[cardId], { qty: Math.max(1, parseInt(document.getElementById('qty').value, 10) || 1), buy: b === '' ? null : parseFloat(b) }); saveCol(); toast('Guardado'); viewCard(cardId); };
@@ -503,9 +538,10 @@ function alertStatus() {
   const ids = [...new Set(list.map(a => a.cm))];
   const pr = {}; q(`SELECT * FROM prices WHERE cm_product_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => pr[r.cm_product_id] = r);
   const info = {}; q(`SELECT c.card_id, ${NAME} name, c.local_id, c.image_base, s.lang, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${list.map(() => '?').join(',')})`, list.map(a => a.card)).forEach(r => info[r.card_id] = r);
+  const vm = variantsOf([...new Set(list.map(a => a.card))]);
   return list.map(a => {
-    const r = pr[a.cm] || {}, now = vPrice(Object.assign({ variant: a.variant }, r));
-    const low = a.variant === 'reverse' ? r.low_holo : r.low;
+    const vr = (vm[a.card] || []).find(v => v.cm_product_id === a.cm && (v.variant || '') === (a.variant || '')) || Object.assign({ variant: a.variant }, pr[a.cm] || {});
+    const now = vPrice(vr), low = isRevHolo(vr) ? vr.low_holo : vr.low; a.vr = vr;
     const ratio = a.target && now != null ? now / a.target : null;
     return Object.assign(a, { now, low, ratio, hit: !!a.target && now != null && now <= a.target, lowHit: !!a.target && low != null && low <= a.target, info: info[a.card] || {} });
   }).sort((x, y) => (x.ratio == null) - (y.ratio == null) || (x.ratio ?? 0) - (y.ratio ?? 0) || (x.now ?? 1e9) - (y.now ?? 1e9));
@@ -522,7 +558,7 @@ function viewWishlist() {
       <div class="list">${list.map(a => {
         const near = a.ratio == null ? 'Sin precio objetivo' : a.hit ? '¡Ya está en tu objetivo!' : `A un ${Math.round((a.ratio - 1) * 100)} % de tu objetivo`;
         return `<div class="item" style="${a.hit ? 'background:#12271D;border-radius:10px;padding:10px' : ''}">
-        <a href="#/card/${encodeURIComponent(a.card)}" style="display:flex;gap:12px;align-items:center;flex:1;color:var(--tx)">${img(a.info.image_base, 'thumb', '', a.card)}<div class="col" style="flex:1"><b>${esc(a.info.name)} · ${esc(a.info.local_id)}</b><span class="muted">${esc(a.info.set_name)} · ${esc(vLabel({ variant: a.variant }))}</span>
+        <a href="#/card/${encodeURIComponent(a.card)}" style="display:flex;gap:12px;align-items:center;flex:1;color:var(--tx)">${img(a.info.image_base, 'thumb', '', a.card)}<div class="col" style="flex:1"><b>${esc(a.info.name)} · ${esc(a.info.local_id)}</b><span class="muted">${esc(a.info.set_name)} · ${esc(vLabel(a.vr || { variant: a.variant }))}</span>
         <span style="font-size:13px" class="${a.hit ? 'up' : ''}">${near}${a.target ? ` · objetivo ${eur(a.target)}` : ''}${!a.hit && a.lowHit ? ` · <span class="up">hay ofertas desde ${eur(a.low)}</span>` : ''}</span></div>
         <b>${eur(a.now)}</b></a><button class="pill" data-bought="${esc(a.key)}" title="La he comprado">✓</button></div>`;
       }).join('')}</div>`
@@ -709,7 +745,7 @@ function viewSealed() {
 function viewSell() {
   const ids = Object.keys(COL.sell), vm = variantsOf(ids);
   const info = {}; if (ids.length) q(`SELECT c.card_id, ${NAME} name, c.name_en, c.local_id, c.rarity, c.image_base, s.card_count, s.lang, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name, s.name_en set_en FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => info[r.card_id] = r);
-  const rows = ids.map(id => { const e = COL.sell[id], vs = vm[id] || [], v = vs.find(x => x.cm_product_id === e.cm && (x.variant || '') === (e.variant || '')) || vs[0], sug = vPrice(v), low = v ? (v.variant === 'reverse' ? v.low_holo : v.low) : null; return { id, e, v, sug, low, i: info[id] || {} }; });
+  const rows = ids.map(id => { const e = COL.sell[id], vs = vm[id] || [], v = vs.find(x => x.cm_product_id === e.cm && (x.variant || '') === (e.variant || '')) || vs[0], sug = vPrice(v), low = v ? (isRevHolo(v) ? v.low_holo : v.low) : null; return { id, e, v, sug, low, i: info[id] || {} }; });
   const total = rows.reduce((t, r) => t + (r.e.price || 0) * (r.e.qty || 1), 0), sugT = rows.reduce((t, r) => t + (r.sug || 0) * (r.e.qty || 1), 0);
   const COND = ['MT', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO'], CL = { MT: 'Mint', NM: 'Near Mint', EX: 'Excelente', GD: 'Bueno', LP: 'Ligeramente jugada', PL: 'Jugada', PO: 'Pobre' };
   const wtext = r => `${r.i.name} ${r.i.local_id}${r.i.card_count ? '/' + r.i.card_count : ''} ${r.i.set_name} - ${r.e.lang} ${r.e.cond}\n\nCarta Pokémon TCG ${r.i.name} (${r.i.set_name}, ${r.i.local_id}${r.i.card_count ? '/' + r.i.card_count : ''}${r.i.rarity ? ', ' + r.i.rarity : ''}${r.v && r.v.variant === 'reverse' ? ', reverse holo' : ''}).\nIdioma: ${r.e.lang}. Estado: ${CL[r.e.cond] || r.e.cond}.\nSale de funda directamente. Envío protegido con top loader.\nPrecio: ${eur(r.e.price)}${r.e.qty > 1 ? ' por unidad (' + r.e.qty + ' disponibles)' : ''}.`;
@@ -773,18 +809,24 @@ function viewSearch() {
 function viewSettings() {
   const days = HAS_HISTORY ? q('SELECT COUNT(DISTINCT day) n FROM history')[0].n : 0;
   $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center">←</a><h1>Ajustes</h1></div>
+    ${syncCard()}
     <div class="card col" style="gap:10px"><b>Base de datos</b><span class="muted">Precios del ${PRICE_DATE.split('-').reverse().join('/')} · ${days} día${days === 1 ? '' : 's'} de historial</span>
       <span class="muted">${ONLINE ? 'Se actualiza sola cada vez que abres la app y hay precios nuevos.' : 'Para actualizar: descarga <b>9bolsillos.db</b> de tu repositorio de GitHub (Releases → datos) y cárgala aquí.'}</span>
       <label class="btn sec" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Cargar base de datos nueva<input type="file" id="dbf" accept=".db" hidden></label></div>
     <div class="card col" style="gap:10px"><b>Precio que usa la app</b>
       <div class="pills"><button class="pill ${PRICE_MODE === 'trend' ? 'on' : ''}" data-pm="trend">Tendencia</button><button class="pill ${PRICE_MODE === 'low' ? 'on' : ''}" data-pm="low">Oferta más baja</button></div>
       <span class="muted">"Oferta más baja" es el anuncio más barato publicado en Cardmarket, de cualquier idioma y estado, tal como estaba de madrugada. "Tendencia" es el precio medio de venta reciente, más estable. Los gráficos de evolución siempre usan la tendencia.</span></div>
+    <div class="card col" style="gap:10px"><b>Cartas y versiones que no existen en español</b>
+      <div class="pills"><button class="pill ${SHOW_NON_ES ? '' : 'on'}" data-ne="0">Ocultarlas</button><button class="pill ${SHOW_NON_ES ? 'on' : ''}" data-ne="1">Mostrarlas</button></div>
+      <span class="muted">Se ocultan las cartas de sets recientes que no tienen versión en español, las versiones marcadas como de otro idioma y las que tú marques con "No existe". Así los porcentajes y el coste de completar son los reales para tu colección en español.</span></div>
     <div class="card col" style="gap:10px"><b>Tu colección</b><span class="muted">${Object.keys(COL.cards).length} cartas, ${Object.keys(COL.sealed).length} sellados, ${Object.keys(COL.alerts).length} deseos, ${COL.purchases.length} compras y ${Object.keys(COL.sell).length} a la venta. Se guardan solo en este navegador: haz copias de vez en cuando.</span>
       <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="exp">Exportar copia</button>
       <label class="btn sec" style="display:flex;align-items:center;cursor:pointer">Importar copia<input type="file" id="imp" accept=".json" hidden></label></div></div>
     <div class="card col" style="gap:10px"><b>Datos</b><span class="muted">Cartas y sets: TCGdex (licencia MIT). Precios: guía pública de Cardmarket. Imágenes: TCGdex. 9Bolsillos no está afiliado a Pokémon, Cardmarket ni TCGdex.</span></div>
   </div>`;
   document.getElementById('dbf').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const b = await f.arrayBuffer(); openDb(b); await idbPut('db', b); await idbPut('db_date', PRICE_DATE); toast('Base de datos actualizada'); viewSettings(); } catch (e) { alert('No se pudo cargar: ' + e.message); } };
+  wireSync(viewSettings);
+  $view.querySelectorAll('[data-ne]').forEach(b => b.onclick = () => { SHOW_NON_ES = b.dataset.ne === '1'; try { localStorage.setItem('9b.showNonEs', SHOW_NON_ES ? '1' : '0'); } catch (e) {} viewSettings(); });
   $view.querySelectorAll('[data-pm]').forEach(b => b.onclick = () => { PRICE_MODE = b.dataset.pm; try { localStorage.setItem('9b.priceMode', PRICE_MODE); } catch (e) {} toast(PRICE_MODE === 'low' ? 'Usando la oferta más baja' : 'Usando la tendencia'); viewSettings(); });
   document.getElementById('exp').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(Object.assign({}, COL, { images: CUSTOM_IMG }), null, 1)], { type: 'application/json' })); a.download = `9bolsillos-coleccion-${new Date().toISOString().slice(0, 10)}.json`; a.click(); };
   document.getElementById('imp').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const c = JSON.parse(await f.text()); if (!c.cards) throw new Error('formato'); if (!confirm('Esto sustituye tu colección actual por la de la copia. ¿Seguir?')) return; const imgs = c.images || {}; delete c.images; COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {} }, c); saveCol(); for (const [k, v] of Object.entries(imgs)) { CUSTOM_IMG[k] = v; await idbPut('img:' + k, v); } toast('Colección importada'); viewSettings(); } catch (e) { alert('Archivo no válido'); } };
@@ -803,6 +845,93 @@ function viewWelcome(msg) {
     try { const b = await f.arrayBuffer(); openDb(b); await idbPut('db', b); await idbPut('db_date', PRICE_DATE); start(); }
     catch (e) { viewWelcome('No se pudo cargar: ' + e.message); }
   };
+}
+
+/* ---------- sincronización entre dispositivos (Supabase) ---------- */
+const SB_CFG = window.NB_CONFIG || {};
+const SB = (SB_CFG.supabaseUrl && SB_CFG.supabaseKey && window.supabase) ? window.supabase.createClient(SB_CFG.supabaseUrl, SB_CFG.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true } }) : null;
+let SB_USER = null, SB_LAST = null, SB_BUSY = false, pushTimer = null, imgsDirty = false;
+async function sbInit() {
+  if (!SB) return;
+  const { data } = await SB.auth.getSession();
+  SB_USER = data && data.session ? data.session.user : null;
+  SB.auth.onAuthStateChange((_e, session) => { SB_USER = session ? session.user : null; });
+  if (SB_USER) await syncNow(true);
+}
+// Trae la versión de la nube; se queda con la más reciente (la de la nube o la de este dispositivo)
+async function syncNow(quiet) {
+  if (!SB || !SB_USER || SB_BUSY) return;
+  SB_BUSY = true;
+  try {
+    const { data, error } = await SB.from('collections').select('data, images, updated_at').eq('user_id', SB_USER.id).maybeSingle();
+    if (error) throw error;
+    const remote = data && data.data && data.data.cards ? data.data : null;
+    const lt = COL.updatedAt || 0, rt = remote ? (remote.updatedAt || 0) : -1;
+    const firstTime = localStorage.getItem('9b.synced') !== (SB_USER.id);
+    if (remote && firstTime && Object.keys(COL.cards).length) {
+      // Primera vez en este dispositivo con datos en los dos lados: se juntan, no se pisa nada
+      COL = mergeCols(remote, COL); COL.updatedAt = Date.now();
+      localStorage.setItem(STORE_KEY, JSON.stringify(COL));
+      for (const [k, v] of Object.entries(data.images || {})) if (!CUSTOM_IMG[k]) { CUSTOM_IMG[k] = v; await idbPut('img:' + k, v); }
+      await pushNow(true);
+      if (!quiet) toast('Colecciones unidas y sincronizadas');
+      if (DB) route();
+    } else if (remote && rt > lt) {
+      COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {} }, remote);
+      localStorage.setItem(STORE_KEY, JSON.stringify(COL));
+      for (const [k, v] of Object.entries(data.images || {})) { if (CUSTOM_IMG[k] !== v) { CUSTOM_IMG[k] = v; await idbPut('img:' + k, v); } }
+      for (const k of Object.keys(CUSTOM_IMG)) if (!(data.images || {})[k]) { delete CUSTOM_IMG[k]; await idbDel('img:' + k); }
+      if (!quiet) toast('Colección actualizada desde la nube');
+      if (DB) route();
+    } else if (!remote || lt > rt) {
+      await pushNow(true);
+      if (!quiet) toast('Colección subida a la nube');
+    }
+    SB_LAST = new Date(); localStorage.setItem('9b.synced', SB_USER.id);
+  } catch (e) { console.warn('Sync:', e); if (!quiet) toast('No se pudo sincronizar: ' + (e.message || e)); }
+  SB_BUSY = false;
+}
+function mergeCols(a, b) {
+  const out = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, hide: {}, setHide: {} }, a);
+  for (const k of ['cards', 'sealed', 'alerts', 'illustrators', 'sell', 'hide']) out[k] = Object.assign({}, a[k] || {}, b[k] || {});
+  out.master = Object.assign({}, a.master || {}); for (const [id, m] of Object.entries(b.master || {})) out.master[id] = Object.assign({}, out.master[id] || {}, m);
+  out.setHide = Object.assign({}, a.setHide || {}); for (const [id, l] of Object.entries(b.setHide || {})) out.setHide[id] = [...new Set([...(out.setHide[id] || []), ...l])];
+  const ids = new Set((a.purchases || []).map(p => p.id)); out.purchases = (a.purchases || []).concat((b.purchases || []).filter(p => !ids.has(p.id)));
+  return out;
+}
+async function pushNow(withImages) {
+  if (!SB || !SB_USER) return;
+  const row = { user_id: SB_USER.id, data: COL, updated_at: new Date().toISOString() };
+  if (withImages || imgsDirty) row.images = CUSTOM_IMG;
+  const { error } = await SB.from('collections').upsert(row);
+  if (error) throw error;
+  imgsDirty = false; SB_LAST = new Date();
+}
+function schedulePush() {
+  if (!SB || !SB_USER) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => pushNow().catch(e => console.warn('Sync:', e)), 1500);
+}
+// Al volver a la app (por ejemplo, cambiar del móvil al ordenador), trae los cambios
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncNow(true); });
+
+function syncCard() {
+  if (!SB) return `<div class="card col" style="gap:8px"><b>Sincronizar entre dispositivos</b><span class="muted">Sin configurar. Sigue los pasos del archivo LEEME para conectar tu cuenta gratuita de Supabase; después podrás entrar con tu email aquí y en el móvil.</span></div>`;
+  if (!SB_USER) return `<div class="card col" style="gap:10px"><b>Sincronizar entre dispositivos</b>
+    <span class="muted">Entra con tu cuenta y tu colección será la misma en el ordenador y en el móvil.</span>
+    <label class="f">Email<input type="text" id="sbe" autocomplete="email" inputmode="email"></label>
+    <label class="f">Contraseña<input type="password" id="sbp" autocomplete="current-password" style="height:44px;border-radius:10px;border:1px solid #39404B;background:var(--bg);color:var(--tx);padding:0 12px"></label>
+    <div class="row" style="flex-wrap:wrap"><button class="btn" id="sbin">Entrar</button><button class="btn sec" id="sbup">Crear cuenta</button></div></div>`;
+  return `<div class="card col" style="gap:10px"><b>Sincronizar entre dispositivos</b>
+    <span class="muted">Conectado como <b style="color:var(--tx)">${esc(SB_USER.email)}</b>${SB_LAST ? ` · última sincronización ${SB_LAST.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` : ''}. Los cambios se guardan solos.</span>
+    <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="sbnow">Sincronizar ahora</button><button class="btn warn" id="sbout">Cerrar sesión</button></div></div>`;
+}
+function wireSync(rerender) {
+  const g = id => document.getElementById(id);
+  if (g('sbin')) g('sbin').onclick = async () => { const { error } = await SB.auth.signInWithPassword({ email: g('sbe').value.trim(), password: g('sbp').value }); if (error) { alert('No se pudo entrar: ' + error.message); return; } const s = await SB.auth.getSession(); SB_USER = s.data.session.user; await syncNow(); rerender(); };
+  if (g('sbup')) g('sbup').onclick = async () => { const email = g('sbe').value.trim(), password = g('sbp').value; if (password.length < 8) { alert('La contraseña debe tener al menos 8 caracteres'); return; } const { data, error } = await SB.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } }); if (error) { alert('No se pudo crear la cuenta: ' + error.message); return; } if (data.session) { SB_USER = data.session.user; await syncNow(); rerender(); } else alert('Cuenta creada. Revisa tu email para confirmarla y luego pulsa "Entrar".'); };
+  if (g('sbnow')) g('sbnow').onclick = async () => { await syncNow(); rerender(); };
+  if (g('sbout')) g('sbout').onclick = async () => { await SB.auth.signOut(); SB_USER = null; rerender(); };
 }
 
 /* ---------- router ---------- */
@@ -830,7 +959,7 @@ function route() {
     else viewHome();
   } catch (e) { console.error(e); $view.innerHTML = `<p class="down">Error: ${esc(e.message)}</p>`; }
 }
-function start() { $tabs.hidden = false; route(); }
+function start() { $tabs.hidden = false; route(); sbInit().catch(e => console.warn('Sync:', e)); }
 window.addEventListener('hashchange', route);
 
 // Descarga automática cuando la app está publicada en internet (GitHub Pages)

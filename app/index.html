@@ -53,6 +53,9 @@ input[type=text],input[type=number],input[type=search],select{height:44px;border
 .vtag{position:absolute;left:6px;bottom:6px;z-index:2;background:rgba(14,17,22,.85);color:var(--tx);font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px}
 .tile{min-width:0}
 .tile .num,.tile .pr{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.logofb{display:flex;align-items:center;justify-content:center;text-align:center;width:96px;height:40px;border-radius:8px;background:#1C2A24;border:1px solid #2B4A3C;color:#CFEFE0;font-size:10px;font-weight:800;line-height:1.1;padding:4px;text-transform:uppercase;letter-spacing:.02em;overflow:hidden}
+.logofb.big{width:auto;max-width:340px;height:auto;padding:14px 22px;font-size:22px;border-radius:12px}
+.herologo{display:flex;justify-content:center}
 .tile .fbn{position:relative;z-index:1}
 .tile .num{font-size:11px;font-weight:700;color:var(--tx3)}
 .tile .nm{font-size:12px;font-weight:600;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -86,7 +89,9 @@ button.pill:disabled{opacity:.35;cursor:default}
   <a href="#/wish" data-t="wish"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z"/></svg>Deseos</a>
   <a href="#/more" data-t="more"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>Más</a>
 </div></nav>
-<script src="sql-wasm-inline.js?v=8"></script>
-<script src="app.js?v=8"></script>
+<script src="sql-wasm-inline.js?v=10"></script>
+<script src="supabase.js?v=10"></script>
+<script src="config.js?v=10"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>
