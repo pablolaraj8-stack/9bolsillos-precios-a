@@ -99,11 +99,15 @@ function openDb(bytes) {
 
 /* ---------- precios ---------- */
 // Precio de referencia de una variante: reverse usa el precio holo de Cardmarket
+// Modo de precio elegido en Ajustes: 'trend' (tendencia) o 'low' (oferta más baja publicada)
+let PRICE_MODE = (() => { try { return localStorage.getItem('9b.priceMode') || 'trend'; } catch (e) { return 'trend'; } })();
+const PRICE_LABEL = () => PRICE_MODE === 'low' ? 'Oferta más baja en Cardmarket' : 'Tendencia en Cardmarket';
 function vPrice(v) {
   if (!v) return null;
-  if (v.variant === 'reverse') return v.trend_holo ?? v.avg30_holo ?? v.low_holo ?? null;
-  return v.trend ?? v.avg30 ?? v.low ?? null;
+  if (v.variant === 'reverse') return PRICE_MODE === 'low' ? (v.low_holo ?? v.trend_holo ?? v.avg30_holo ?? null) : (v.trend_holo ?? v.avg30_holo ?? v.low_holo ?? null);
+  return PRICE_MODE === 'low' ? (v.low ?? v.trend ?? v.avg30 ?? null) : (v.trend ?? v.avg30 ?? v.low ?? null);
 }
+function rPrice(r) { return !r ? null : PRICE_MODE === 'low' ? (r.low ?? r.trend ?? r.avg30 ?? null) : (r.trend ?? r.avg30 ?? r.low ?? null); }
 const VSQL = `SELECT v.card_id, v.cm_product_id, v.variant, v.subtype, v.stamp, v.ambiguous,
   p.low, p.trend, p.avg, p.avg1, p.avg7, p.avg30, p.low_holo, p.trend_holo, p.avg7_holo, p.avg30_holo
   FROM card_variants v LEFT JOIN prices p ON p.cm_product_id = v.cm_product_id`;
@@ -166,7 +170,7 @@ function viewHome() {
   const sealedIds = Object.keys(COL.sealed).map(Number);
   let sealedV = 0;
   if (sealedIds.length) q(`SELECT cm_product_id, trend, avg30, low FROM prices WHERE cm_product_id IN (${sealedIds.map(() => '?').join(',')})`, sealedIds)
-    .forEach(r => { const p = r.trend ?? r.avg30 ?? r.low; if (p != null) sealedV += p * (COL.sealed[r.cm_product_id].qty || 1); });
+    .forEach(r => { const p = rPrice(r); if (p != null) sealedV += p * (COL.sealed[r.cm_product_id].qty || 1); });
   // Versiones extra del máster set
   const mids = Object.keys(COL.master || {});
   if (mids.length) { const mv = variantsOf(mids); mids.forEach(id => { uniqVariants(mv[id]).forEach(v => { if (COL.master[id][vkey(v)]) { const p = vPrice(v); if (p != null) { total += p; regions[id] === 'asia' ? jpV += p : intV += p; } } }); }); }
@@ -367,8 +371,8 @@ function viewSet(setId) {
     ${browserControls()}
     <div id="grid"></div>
     ${sealed.length ? `<div class="col"><h2>Producto sellado</h2><div class="list">${sealed.map(x => `<div class="item"><div class="col" style="flex:1"><b>${esc(x.name)}</b><span class="muted">${esc(x.category.replace('Pokémon ', ''))}</span></div>
-      <b>${eur(x.trend ?? x.avg30 ?? x.low)}</b><button class="pill ${COL.sealed[x.cm_product_id] ? 'on' : ''}" data-sealed="${x.cm_product_id}">${COL.sealed[x.cm_product_id] ? '✓ Tengo ' + (COL.sealed[x.cm_product_id].qty || 1) : '＋'}</button></div>`).join('')}</div></div>` : ''}
-    <p class="muted">Precios: tendencia de Cardmarket${s.lang === 'es' ? ' (español e inglés juntos)' : ''}.</p></div>`;
+      <b>${eur(rPrice(x))}</b><button class="pill ${COL.sealed[x.cm_product_id] ? 'on' : ''}" data-sealed="${x.cm_product_id}">${COL.sealed[x.cm_product_id] ? '✓ Tengo ' + (COL.sealed[x.cm_product_id].qty || 1) : '＋'}</button></div>`).join('')}</div></div>` : ''}
+    <p class="muted">Precios: ${PRICE_LABEL().toLowerCase()}${s.lang === 'es' ? ' (español e inglés juntos)' : ''}.</p></div>`;
   wireControls(() => viewSet(setId));
   $view.querySelectorAll('[data-sealed]').forEach(b => b.onclick = () => {
     const id = b.dataset.sealed, cur = COL.sealed[id];
@@ -422,7 +426,7 @@ function viewIllustrator(name) {
     <div class="card col" style="gap:8px" id="ihead"></div>
     ${browserControls('ill')}
     <div id="grid"></div>
-    <p class="muted">Ordenadas por fecha de salida del set. Precios: tendencia de Cardmarket.${illLang === 'ja' ? ' En japonés la lista está incompleta: a la base de datos le faltan muchos sets antiguos (DP, BW, XY…) y el ilustrador de algunas cartas.' : ''}</p></div>`;
+    <p class="muted">Ordenadas por fecha de salida del set. Precios: ${PRICE_LABEL().toLowerCase()}.${illLang === 'ja' ? ' En japonés la lista está incompleta: a la base de datos le faltan muchos sets antiguos (DP, BW, XY…) y el ilustrador de algunas cartas.' : ''}</p></div>`;
   document.getElementById('fav').onclick = () => { if (fav) delete COL.illustrators[name]; else COL.illustrators[name] = { since: PRICE_DATE }; saveCol(); viewIllustrator(name); };
   $view.querySelectorAll('[data-il]').forEach(b => b.onclick = () => { illLang = b.dataset.il; viewIllustrator(name); });
   wireControls(() => viewIllustrator(name));
@@ -453,7 +457,7 @@ function viewCard(cardId) {
           <button class="pill" id="curl" style="font-size:13px">Enlace</button>${CUSTOM_IMG[cardId] ? '<button class="pill" id="cdel" style="font-size:13px">Quitar</button>' : ''}</div></div>
         <div class="col" style="gap:8px;flex:1;min-width:200px">
           <h1>${esc(c.name)}</h1>${c.illustrator ? `<a href="#/illustrator/${encodeURIComponent(c.illustrator)}" style="font-size:14px">Ilustración: ${esc(c.illustrator)} →</a>` : ''}${albumPos ? `<span class="muted">${albumPos}</span>` : ''}${c.name_en && c.name_en !== c.name ? `<span class="muted">${esc(c.name_en)}</span>` : ''}${c.name_ja && c.name_ja !== c.name ? `<span class="muted">${esc(c.name_ja)}</span>` : ''}
-          <div class="big">${eur(p)}</div><span class="muted">Tendencia en Cardmarket${hol ? ' (reverse holo)' : ''}</span>
+          <div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}${hol ? ' (reverse holo)' : ''}${PRICE_MODE === 'low' ? ' · cualquier idioma y estado' : ''}</span>
           ${sel && sel.ambiguous ? '<span class="down" style="font-size:13px">Ojo: este precio podría corresponder a otra versión de la carta.</span>' : ''}
           ${vs.length > 1 ? `<label class="f">Versión<select id="vsel">${vs.map((v, i) => `<option value="${i}" ${v === sel ? 'selected' : ''}>${esc(vLabel(v))} — ${eur(vPrice(v))}</option>`).join('')}</select></label>` : `<span class="muted">${sel ? esc(vLabel(sel)) : 'Sin precio en Cardmarket'}</span>`}
         </div></div>
@@ -547,7 +551,7 @@ function sealedPrices(ids) {
 }
 function purchaseValue(pu, cardPrice, sealed) {
   if (pu.card) { const v = cardPrice[pu.card]; return v != null ? v * (pu.qty || 1) : null; }
-  if (pu.cm && sealed[pu.cm]) { const r = sealed[pu.cm]; const p = r.trend ?? r.avg30 ?? r.low; return p != null ? p * (pu.qty || 1) : null; }
+  if (pu.cm && sealed[pu.cm]) { const r = sealed[pu.cm]; const p = rPrice(r); return p != null ? p * (pu.qty || 1) : null; }
   return null;
 }
 function parseNum(v) { if (v == null) return null; v = String(v).replace(/[€\s]/g, ''); if (/,\d{1,2}$/.test(v)) v = v.replace(/\./g, '').replace(',', '.'); const n = parseFloat(v); return isNaN(n) ? null : n; }
@@ -673,7 +677,7 @@ function viewSealed() {
   const ids = Object.keys(COL.sealed).map(Number), info = sealedPrices(ids);
   const hist = {}; historyFor(ids).forEach(h => { if (h.trend_c != null) (hist[h.cm_product_id] ||= []).push([h.day, h.trend_c / 100]); });
   let cost = 0, val = 0;
-  const rows = ids.map(id => { const e = COL.sealed[id], r = info[id] || {}, now = r.trend ?? r.avg30 ?? r.low ?? null, qty = e.qty || 1;
+  const rows = ids.map(id => { const e = COL.sealed[id], r = info[id] || {}, now = rPrice(r), qty = e.qty || 1;
     if (now != null) val += now * qty; if (e.buy != null && now != null) cost += e.buy * qty;
     const mom = r.avg30 && now != null ? (now - r.avg30) / r.avg30 * 100 : null;
     return { id, e, r, now, qty, mom }; }).sort((a, b) => (b.now || 0) * b.qty - (a.now || 0) * a.qty);
@@ -710,7 +714,7 @@ function viewSell() {
   const COND = ['MT', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO'], CL = { MT: 'Mint', NM: 'Near Mint', EX: 'Excelente', GD: 'Bueno', LP: 'Ligeramente jugada', PL: 'Jugada', PO: 'Pobre' };
   const wtext = r => `${r.i.name} ${r.i.local_id}${r.i.card_count ? '/' + r.i.card_count : ''} ${r.i.set_name} - ${r.e.lang} ${r.e.cond}\n\nCarta Pokémon TCG ${r.i.name} (${r.i.set_name}, ${r.i.local_id}${r.i.card_count ? '/' + r.i.card_count : ''}${r.i.rarity ? ', ' + r.i.rarity : ''}${r.v && r.v.variant === 'reverse' ? ', reverse holo' : ''}).\nIdioma: ${r.e.lang}. Estado: ${CL[r.e.cond] || r.e.cond}.\nSale de funda directamente. Envío protegido con top loader.\nPrecio: ${eur(r.e.price)}${r.e.qty > 1 ? ' por unidad (' + r.e.qty + ' disponibles)' : ''}.`;
   $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center">←</a><h1>Lista de venta</h1></div>
-    <div class="card col" style="gap:6px"><span class="muted">${rows.length} carta${rows.length === 1 ? '' : 's'} a la venta · lo que pides</span><div class="big">${eur(total)}</div><span class="muted">Según la tendencia de Cardmarket valdrían ${eur(sugT)}</span>
+    <div class="card col" style="gap:6px"><span class="muted">${rows.length} carta${rows.length === 1 ? '' : 's'} a la venta · lo que pides</span><div class="big">${eur(total)}</div><span class="muted">Según ${PRICE_MODE === 'low' ? 'la oferta más baja' : 'la tendencia'} de Cardmarket valdrían ${eur(sugT)}</span>
       <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="xcsv">Exportar CSV</button></div></div>
     <div class="list">${rows.map(r => `<div class="item" style="flex-wrap:wrap;align-items:flex-start">${img(r.i.image_base, 'thumb', '', r.id)}<div class="col" style="flex:1;min-width:180px"><a href="#/card/${encodeURIComponent(r.id)}" style="color:var(--tx)"><b>${esc(r.i.name)} · ${esc(r.i.local_id)}</b></a><span class="muted">${esc(r.i.set_name)}${r.v ? ' · ' + esc(vLabel(r.v)) : ''}</span>
         <span style="font-size:13px">Sugerido ${eur(r.sug)} · mínimo publicado ${eur(r.low)}</span>
@@ -772,12 +776,16 @@ function viewSettings() {
     <div class="card col" style="gap:10px"><b>Base de datos</b><span class="muted">Precios del ${PRICE_DATE.split('-').reverse().join('/')} · ${days} día${days === 1 ? '' : 's'} de historial</span>
       <span class="muted">${ONLINE ? 'Se actualiza sola cada vez que abres la app y hay precios nuevos.' : 'Para actualizar: descarga <b>9bolsillos.db</b> de tu repositorio de GitHub (Releases → datos) y cárgala aquí.'}</span>
       <label class="btn sec" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Cargar base de datos nueva<input type="file" id="dbf" accept=".db" hidden></label></div>
+    <div class="card col" style="gap:10px"><b>Precio que usa la app</b>
+      <div class="pills"><button class="pill ${PRICE_MODE === 'trend' ? 'on' : ''}" data-pm="trend">Tendencia</button><button class="pill ${PRICE_MODE === 'low' ? 'on' : ''}" data-pm="low">Oferta más baja</button></div>
+      <span class="muted">"Oferta más baja" es el anuncio más barato publicado en Cardmarket, de cualquier idioma y estado, tal como estaba de madrugada. "Tendencia" es el precio medio de venta reciente, más estable. Los gráficos de evolución siempre usan la tendencia.</span></div>
     <div class="card col" style="gap:10px"><b>Tu colección</b><span class="muted">${Object.keys(COL.cards).length} cartas, ${Object.keys(COL.sealed).length} sellados, ${Object.keys(COL.alerts).length} deseos, ${COL.purchases.length} compras y ${Object.keys(COL.sell).length} a la venta. Se guardan solo en este navegador: haz copias de vez en cuando.</span>
       <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="exp">Exportar copia</button>
       <label class="btn sec" style="display:flex;align-items:center;cursor:pointer">Importar copia<input type="file" id="imp" accept=".json" hidden></label></div></div>
     <div class="card col" style="gap:10px"><b>Datos</b><span class="muted">Cartas y sets: TCGdex (licencia MIT). Precios: guía pública de Cardmarket. Imágenes: TCGdex. 9Bolsillos no está afiliado a Pokémon, Cardmarket ni TCGdex.</span></div>
   </div>`;
   document.getElementById('dbf').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const b = await f.arrayBuffer(); openDb(b); await idbPut('db', b); await idbPut('db_date', PRICE_DATE); toast('Base de datos actualizada'); viewSettings(); } catch (e) { alert('No se pudo cargar: ' + e.message); } };
+  $view.querySelectorAll('[data-pm]').forEach(b => b.onclick = () => { PRICE_MODE = b.dataset.pm; try { localStorage.setItem('9b.priceMode', PRICE_MODE); } catch (e) {} toast(PRICE_MODE === 'low' ? 'Usando la oferta más baja' : 'Usando la tendencia'); viewSettings(); });
   document.getElementById('exp').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(Object.assign({}, COL, { images: CUSTOM_IMG }), null, 1)], { type: 'application/json' })); a.download = `9bolsillos-coleccion-${new Date().toISOString().slice(0, 10)}.json`; a.click(); };
   document.getElementById('imp').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const c = JSON.parse(await f.text()); if (!c.cards) throw new Error('formato'); if (!confirm('Esto sustituye tu colección actual por la de la copia. ¿Seguir?')) return; const imgs = c.images || {}; delete c.images; COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {} }, c); saveCol(); for (const [k, v] of Object.entries(imgs)) { CUSTOM_IMG[k] = v; await idbPut('img:' + k, v); } toast('Colección importada'); viewSettings(); } catch (e) { alert('Archivo no válido'); } };
 }
