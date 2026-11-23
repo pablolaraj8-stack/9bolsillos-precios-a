@@ -1,0 +1,38 @@
+name: Precios diarios de Cardmarket
+
+on:
+  schedule:
+    - cron: "17 4 * * *"   # todos los días a las 04:17 UTC (05:17 en Madrid en invierno)
+  workflow_dispatch:        # botón "Run workflow" para lanzarlo a mano
+
+permissions:
+  contents: write
+
+env:
+  # Pega aquí el enlace de descarga de la guía de precios de Pokémon (ver README)
+  PRICE_GUIDE_URL: "https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_6.json"
+  RELEASE_TAG: datos
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar la base de datos actual
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$RELEASE_TAG" --pattern 9bolsillos.db --clobber
+
+      - name: Descargar la guía de precios de hoy
+        run: |
+          curl -fsSL --retry 3 -A "9Bolsillos-precios/1.0" "$PRICE_GUIDE_URL" -o price_guide.json
+          ls -la price_guide.json
+
+      - name: Añadir precios
+        run: python3 update_prices.py --db 9bolsillos.db --prices price_guide.json
+
+      - name: Guardar la base de datos actualizada
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$RELEASE_TAG" 9bolsillos.db --clobber
