@@ -172,7 +172,7 @@ function chartSvg(points, w = 700, h = 180) {
 }
 
 /* ---------- vistas ---------- */
-let homePeriod = 30, homeMoves = 'up';
+let homePeriod = 30, homeMoves = 'up', topN = 8;
 function viewHome() {
   const ids = Object.keys(COL.cards);
   const vmap = variantsOf(ids);
@@ -227,8 +227,11 @@ function viewHome() {
     : allMoves.filter(o => o.ch > 0).sort((a, b) => b.ch - a.ch)).slice(0, 8);
   const moveTitle = { up: 'Mayores subidas', down: 'Mayores bajadas', abs: 'Mayor variación en €' }[homeMoves];
   const moveBase = useHist ? `desde el ${dayToStr(lim)}` : 'vs media 30 días';
+  // Tus cartas más valiosas (precio × copias)
+  const top = owned.filter(o => o.v && o.p != null).map(o => Object.assign({}, o, { tv: o.p * o.qty })).sort((a, b) => b.tv - a.tv).slice(0, topN);
   const names = {};
-  if (movers.length) q(`SELECT c.card_id, COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local) name, c.local_id, c.image_base, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${movers.map(() => '?').join(',')})`, movers.map(m => m.id)).forEach(r => names[r.card_id] = r);
+  const nameIds = [...new Set(movers.map(m => m.id).concat(top.map(t => t.id)))];
+  if (nameIds.length) q(`SELECT c.card_id, COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local) name, c.local_id, c.image_base, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${nameIds.map(() => '?').join(',')})`, nameIds).forEach(r => names[r.card_id] = r);
 
   const alertsHit = alertStatus().filter(a => a.hit).length;
   const periods = [[7, '1S'], [30, '1M'], [90, '3M'], [365, '1A'], [0, 'Todo']];
@@ -243,6 +246,8 @@ function viewHome() {
     ${total ? `<div class="card col" style="gap:10px"><b>Reparto</b>
       <div class="bar" style="display:flex;gap:2px;background:none">${[[intV, 'var(--up)'], [jpV, 'var(--down)'], [sealedV, 'var(--blue)']].filter(x => x[0] > 0).map(x => `<div style="width:${x[0] / total * 100}%;background:${x[1]};border-radius:3px"></div>`).join('')}</div>
       <div class="row muted" style="gap:18px;flex-wrap:wrap"><span>Español/inglés <b style="color:var(--tx)">${eur(intV)}</b></span><span>Japonés y otros <b style="color:var(--tx)">${eur(jpV)}</b></span><span>Sellado <b style="color:var(--tx)">${eur(sealedV)}</b></span></div></div>` : ''}
+    ${top.length ? `<div class="col" style="gap:8px"><div class="between"><h2>Tus cartas más valiosas</h2>${owned.length > 8 ? `<button class="pill" id="topmore">${topN > 8 ? 'Ver menos' : 'Ver 25'}</button>` : ''}</div>
+      <div class="list">${top.map((t, i) => { const r = names[t.id] || {}; return `<a class="item" href="#/card/${encodeURIComponent(t.id)}"><span class="muted" style="width:22px;text-align:right;font-weight:700">${i + 1}</span>${img(r.image_base, 'thumb', '', t.id)}<div class="col" style="flex:1"><b>${esc(r.name)} · ${esc(r.local_id)}</b><span class="muted">${esc(r.set_name)} · ${esc(vLabel(t.v))}${t.qty > 1 ? ' · ' + t.qty + ' uds' : ''}</span></div><div class="col" style="align-items:flex-end"><b>${eur(t.tv)}</b>${t.qty > 1 ? `<span class="muted" style="font-size:12px">${eur(t.p)}/ud</span>` : ''}</div></a>`; }).join('')}</div></div>` : ''}
     ${allMoves.length ? `<div class="col" style="gap:8px"><div class="between" style="flex-wrap:wrap;gap:8px"><h2>${moveTitle} <span class="muted">(${moveBase})</span></h2>
       <div class="pills">${[['up', 'Subidas'], ['down', 'Bajadas'], ['abs', 'Variación €']].map(([k, l]) => `<button class="pill ${homeMoves === k ? 'on' : ''}" data-mv2="${k}">${l}</button>`).join('')}</div></div>
       <div class="list">${movers.map(m => {
@@ -252,6 +257,7 @@ function viewHome() {
   </div>`;
   $view.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { homePeriod = +b.dataset.p; viewHome(); });
   $view.querySelectorAll('[data-mv2]').forEach(b => b.onclick = () => { homeMoves = b.dataset.mv2; viewHome(); });
+  const tm = document.getElementById('topmore'); if (tm) tm.onclick = () => { topN = topN > 8 ? 8 : 25; viewHome(); };
 }
 
 const LANGS = { es: 'Español / inglés', ja: 'Japonés', ko: 'Coreano', 'zh-tw': 'Chino (trad.)', 'zh-cn': 'Chino (simpl.)', id: 'Indonesio', th: 'Tailandés' };
