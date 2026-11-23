@@ -419,19 +419,87 @@ function viewSet(setId) {
       <div class="pills">${vtypes.map(t => `<button class="pill ${hidT.includes(t) ? '' : 'on'}" data-vt="${esc(t)}">${esc(t)}</button>`).join('')}</div></div>` : ''}
     ${!SHOW_NON_ES && nHidden ? `<span class="muted" style="font-size:13px">${nHidden} carta${nHidden > 1 ? 's' : ''} oculta${nHidden > 1 ? 's' : ''} porque no existe${nHidden > 1 ? 'n' : ''} en español. <a href="#/settings">Cambiar en Ajustes</a></span>` : ''}
     <div id="grid"></div>
-    ${sealed.length ? `<div class="col"><h2>Producto sellado</h2><div class="list">${sealed.map(x => `<div class="item"><div class="col" style="flex:1"><b>${esc(x.name)}</b><span class="muted">${esc(x.category.replace('Pokémon ', ''))}</span></div>
-      <b>${eur(rPrice(x))}</b><button class="pill ${COL.sealed[x.cm_product_id] ? 'on' : ''}" data-sealed="${x.cm_product_id}">${COL.sealed[x.cm_product_id] ? '✓ Tengo ' + (COL.sealed[x.cm_product_id].qty || 1) : '＋'}</button></div>`).join('')}</div></div>` : ''}
+    ${sealed.length ? `<div class="col" style="gap:10px"><h2>Producto sellado</h2>${sealedTiles(sealed.map(x => Object.assign(x, { set_name: s.name })), ib)}</div>` : ''}
     <p class="muted">Precios: ${PRICE_LABEL().toLowerCase()}${s.lang === 'es' ? ' (español e inglés juntos)' : ''}.</p></div>`;
   wireControls(() => viewSet(setId));
   $view.querySelectorAll('[data-vt]').forEach(b => b.onclick = () => { COL.setHide ||= {}; const l = COL.setHide[setId] ||= []; const t = b.dataset.vt; const i = l.indexOf(t); if (i >= 0) l.splice(i, 1); else l.push(t); if (!l.length) delete COL.setHide[setId]; saveCol(); viewSet(setId); });
-  $view.querySelectorAll('[data-sealed]').forEach(b => b.onclick = () => {
-    const id = b.dataset.sealed, cur = COL.sealed[id];
-    if (!cur) COL.sealed[id] = { qty: 1, set: setId };
-    else { const n = prompt('¿Cuántas unidades tienes? (0 para quitarlo)', cur.qty || 1); if (n === null) return; const k = parseInt(n, 10); if (!k) delete COL.sealed[id]; else cur.qty = k; }
-    saveCol(); viewSet(setId);
-  });
+  wireSealedTiles(() => viewSet(setId));
   cardBrowser('set:' + setId, cards, vmap, document.getElementById('grid'), document.getElementById('sethead'),
     { kind: 'set', sub: c => `${c.local_id}${s.card_count ? '/' + s.card_count : ''} · ${c.rarity || ''}` })();
+}
+
+
+/* ---------- producto sellado: casillas con dibujo según el tipo + logo del set ---------- */
+const SEALED_ORDER = ['Pokémon Booster', 'Pokémon Display', 'Pokémon Elite Trainer Boxes', 'Pokémon Box Set', 'Pokémon Tins', 'Pokémon Blisters', 'Pokémon Theme Decks', 'Pokémon Trainer Kits', 'Pokémon Coins', 'PCG Set', 'Pokémon Lot'];
+const SEALED_LABEL = { 'Pokémon Booster': 'Sobre', 'Pokémon Display': 'Caja de sobres', 'Pokémon Elite Trainer Boxes': 'Elite Trainer Box', 'Pokémon Box Set': 'Caja / colección', 'Pokémon Tins': 'Lata', 'Pokémon Blisters': 'Blíster', 'Pokémon Theme Decks': 'Baraja', 'Pokémon Trainer Kits': 'Kit de entrenador', 'Pokémon Coins': 'Moneda', 'PCG Set': 'Set', 'Pokémon Lot': 'Lote' };
+function sealedShape(cat) {
+  const st = 'fill="#1E2630" stroke="#3B4B5C" stroke-width="2"';
+  switch (cat) {
+    case 'Pokémon Booster': return `<path ${st} d="M30 8 L90 8 L94 16 L90 22 L90 118 L94 124 L90 132 L30 132 L26 124 L30 118 L30 22 L26 16 Z"/><path d="M30 22 L90 22 M30 118 L90 118" stroke="#3B4B5C" stroke-width="1.5" stroke-dasharray="3 3"/>`;
+    case 'Pokémon Display': return `<path ${st} d="M10 40 L60 22 L110 40 L110 116 L60 134 L10 116 Z"/><path d="M10 40 L60 58 L110 40 M60 58 L60 134" stroke="#3B4B5C" stroke-width="2" fill="none"/>`;
+    case 'Pokémon Elite Trainer Boxes': return `<rect ${st} x="14" y="34" width="92" height="96" rx="4"/><rect ${st} x="10" y="24" width="100" height="22" rx="4"/>`;
+    case 'Pokémon Tins': return `<rect ${st} x="16" y="20" width="88" height="110" rx="22"/><rect x="22" y="26" width="76" height="98" rx="18" fill="none" stroke="#3B4B5C" stroke-width="1.5"/>`;
+    case 'Pokémon Blisters': return `<rect ${st} x="16" y="10" width="88" height="124" rx="6"/><circle cx="60" cy="22" r="5" fill="#0E1116"/><rect x="26" y="40" width="68" height="84" rx="6" fill="none" stroke="#3B4B5C" stroke-width="1.5"/>`;
+    case 'Pokémon Coins': return `<circle ${st} cx="60" cy="72" r="46"/><circle cx="60" cy="72" r="36" fill="none" stroke="#3B4B5C" stroke-width="1.5"/>`;
+    default: return `<rect ${st} x="10" y="28" width="100" height="92" rx="6"/><path d="M10 50 L110 50" stroke="#3B4B5C" stroke-width="2"/>`;
+  }
+}
+function sealedArt(x, logoBase, cls = 'sealart') {
+  const key = 'sealed:' + x.cm_product_id;
+  if (CUSTOM_IMG[key]) return `<div class="${cls}"><img src="${CUSTOM_IMG[key]}" alt="" style="width:100%;height:100%;object-fit:contain"></div>`;
+  return `<div class="${cls}"><svg viewBox="0 0 120 142" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%">${sealedShape(x.category)}</svg>
+    <div class="seallogo">${setLogo(logoBase, 'setlogo', x.set_name || '')}</div>
+    <span class="sealtype">${esc(SEALED_LABEL[x.category] || x.category.replace('Pokémon ', ''))}</span></div>`;
+}
+function sealedTiles(list, logoBase) {
+  const sorted = list.slice().sort((a, b) => (SEALED_ORDER.indexOf(a.category) + 1 || 99) - (SEALED_ORDER.indexOf(b.category) + 1 || 99) || (rPrice(b) || 0) - (rPrice(a) || 0));
+  return `<div class="grid">${sorted.map(x => { const own = COL.sealed[x.cm_product_id];
+    return `<div class="tile ${own ? 'has' : 'miss'} stile" data-sopen="${x.cm_product_id}">
+      <div class="img" style="aspect-ratio:120/142">${sealedArt(x, logoBase)}
+        <button class="own" data-sealed="${x.cm_product_id}" aria-label="${own ? 'Cambiar unidades de' : 'Añadir'} ${esc(x.name)}">${own ? (own.qty > 1 ? own.qty : '✓') : '＋'}</button></div>
+      <span class="nm" style="white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(x.name)}</span><span class="pr">${eur(rPrice(x))}</span></div>`; }).join('')}</div>`;
+}
+function wireSealedTiles(back) {
+  $view.querySelectorAll('[data-sealed]').forEach(b => b.onclick = ev => {
+    ev.stopPropagation(); const id = b.dataset.sealed, cur = COL.sealed[id];
+    if (!cur) COL.sealed[id] = { qty: 1 };
+    else { const n = prompt('¿Cuántas unidades tienes? (0 para quitarlo)', cur.qty || 1); if (n === null) return; const k = parseInt(n, 10); if (!k) delete COL.sealed[id]; else cur.qty = k; }
+    saveCol(); back();
+  });
+  $view.querySelectorAll('[data-sopen]').forEach(t => t.onclick = () => location.hash = '#/sealeditem/' + t.dataset.sopen);
+}
+function viewSealedItem(id) {
+  const x = q(`SELECT p.cm_product_id, p.name, p.category, p.cm_expansion_id, pr.trend, pr.avg30, pr.avg7, pr.low,
+     s.set_id, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name,
+     (SELECT image_base FROM cards c WHERE c.set_id = s.set_id LIMIT 1) ib
+     FROM cm_products p LEFT JOIN prices pr USING(cm_product_id) LEFT JOIN sets s ON s.set_id = (SELECT MIN(set_id) FROM sets z WHERE z.cm_expansion_id = p.cm_expansion_id)
+     WHERE p.cm_product_id = ?`, [+id])[0];
+  if (!x) { $view.innerHTML = '<p>Producto no encontrado.</p>'; return; }
+  const e = COL.sealed[id], p = rPrice(x);
+  const h = historyFor([+id]).filter(r => r.trend_c != null).map(r => [r.day, r.trend_c / 100]);
+  const gain = e && e.buy != null && p != null ? (p - e.buy) * (e.qty || 1) : null;
+  const cm = 'https://www.cardmarket.com/es/Pokemon/Products/Search?searchString=' + encodeURIComponent(x.name);
+  $view.innerHTML = `<div class="stack">
+    <div class="row"><a href="${x.set_id ? '#/set/' + encodeURIComponent(x.set_id) : '#/sealed'}" class="pill" style="display:flex;align-items:center">←</a><span class="muted">${esc(x.set_name || '')} · ${esc(SEALED_LABEL[x.category] || x.category)}</span></div>
+    <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
+      <div class="col" style="gap:8px;align-items:flex-start"><div style="width:180px;position:relative">${sealedArt(x, x.ib, 'sealart big')}</div>
+        <div class="row" style="flex-wrap:wrap;gap:6px;max-width:180px"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG['sealed:' + id] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="simg" accept="image/*" hidden></label>${CUSTOM_IMG['sealed:' + id] ? '<button class="pill" id="sdel" style="font-size:13px">Quitar</button>' : ''}</div></div>
+      <div class="col" style="gap:8px;flex:1;min-width:200px"><h1>${esc(x.name)}</h1>
+        <div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}</span>
+        <a target="_blank" rel="noopener" href="${cm}">Ver en Cardmarket ↗</a></div></div>
+    <div class="card"><table><tr><th>Cardmarket</th><th>Mínimo</th><th>Tendencia</th><th>Media 30 d</th></tr><tr><td>Precio</td><td>${eur(x.low)}</td><td>${eur(x.trend)}</td><td>${eur(x.avg30)}</td></tr></table></div>
+    <div class="col" style="gap:8px"><h2>Evolución del precio</h2>${chartSvg(h, 700, 140)}</div>
+    <div class="card col" style="gap:12px"><b>${e ? 'Lo tienes' : 'No lo tienes'}</b>
+      ${e ? `<div class="row" style="flex-wrap:wrap"><label class="f">Unidades<input type="number" id="sq" min="1" value="${e.qty || 1}" style="width:90px"></label>
+        <label class="f">Precio de compra (€/ud)<input type="number" id="sb" step="0.01" min="0" value="${e.buy ?? ''}" style="width:150px"></label></div>
+        ${gain != null ? `<span class="${gain >= 0 ? 'up' : 'down'}" style="font-weight:700">${gain >= 0 ? '+' : '−'}${eur(Math.abs(gain))} (${pct((p - e.buy) / e.buy * 100)})</span>` : ''}
+        <div class="row"><button class="btn" id="ssave">Guardar</button><button class="btn warn" id="sdelc">Quitar</button></div>` : '<button class="btn" id="sadd">＋ Lo tengo</button>'}</div></div>`;
+  const g = k => document.getElementById(k);
+  if (g('sadd')) g('sadd').onclick = () => { COL.sealed[id] = { qty: 1 }; saveCol(); viewSealedItem(id); };
+  if (g('ssave')) g('ssave').onclick = () => { COL.sealed[id].qty = Math.max(1, parseInt(g('sq').value, 10) || 1); COL.sealed[id].buy = parseNum(g('sb').value); saveCol(); toast('Guardado'); viewSealedItem(id); };
+  if (g('sdelc')) g('sdelc').onclick = () => { delete COL.sealed[id]; saveCol(); viewSealedItem(id); };
+  if (g('simg')) g('simg').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; const u = await resizeImage(f); CUSTOM_IMG['sealed:' + id] = u; await idbPut('img:sealed:' + id, u); imgsDirty = true; saveCol(); viewSealedItem(id); };
+  if (g('sdel')) g('sdel').onclick = async () => { delete CUSTOM_IMG['sealed:' + id]; await idbDel('img:sealed:' + id); imgsDirty = true; saveCol(); viewSealedItem(id); };
 }
 
 /* ---------- ilustradores ---------- */
@@ -744,7 +812,7 @@ function viewSealed() {
     <label class="f">Añadir producto sellado<input type="search" id="sq2" placeholder="Busca: Pitch Black Elite Trainer Box, Booster Box…"></label><div class="list" id="sres"></div>
     <div class="list">${rows.map(x => { const g = x.e.buy != null && x.now != null ? (x.now - x.e.buy) * x.qty : null;
       const verdict = x.mom == null ? '' : x.mom > 5 ? '<span class="up">Subiendo (tendencia por encima de su media de 30 días)</span>' : x.mom < -5 ? '<span class="down">Bajando respecto a su media de 30 días</span>' : 'Estable';
-      return `<div class="item" style="flex-wrap:wrap"><div class="col" style="flex:1;min-width:200px"><b>${esc(x.r.name || ('Producto ' + x.id))}</b><span class="muted">${esc((x.r.category || '').replace('Pokémon ', ''))}${x.r.set_name ? ' · ' + esc(x.r.set_name) : ''}</span>
+      return `<div class="item" style="flex-wrap:wrap"><div class="col" style="flex:1;min-width:200px"><a href="#/sealeditem/${x.id}" style="color:var(--tx)"><b>${esc(x.r.name || ('Producto ' + x.id))}</b></a><span class="muted">${esc((x.r.category || '').replace('Pokémon ', ''))}${x.r.set_name ? ' · ' + esc(x.r.set_name) : ''}</span>
         <span style="font-size:13px">Hoy ${eur(x.now)}/ud${x.e.buy != null ? ` · pagaste ${eur(x.e.buy)}/ud` : ''}${g != null ? ` · <span class="${g >= 0 ? 'up' : 'down'}">${g >= 0 ? '+' : '−'}${eur(Math.abs(g))} (${pct((x.now - x.e.buy) / x.e.buy * 100)})</span>` : ''}</span>
         <span class="muted" style="font-size:12px">${verdict}${(hist[x.id] || []).length > 1 ? ' · ' + (hist[x.id].length) + ' días de historial' : ''}</span></div>
         <div class="row"><label class="f">Uds<input type="number" min="0" value="${x.qty}" data-sq="${x.id}" style="width:70px"></label><label class="f">€/ud pagado<input type="number" step="0.01" min="0" value="${x.e.buy ?? ''}" data-sb="${x.id}" style="width:100px"></label></div></div>`; }).join('') || '<p class="muted">No tienes producto sellado apuntado.</p>'}</div>
@@ -978,7 +1046,7 @@ function route() {
   if (!DB) return;
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   const [, a, b] = h.split('/');
-  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', expenses: 'more', sealed: 'more', sell: 'more' }[a || ''] || 'home';
+  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more' }[a || ''] || 'home';
   $tabs.querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
   window.scrollTo(0, 0);
   try {
@@ -992,6 +1060,7 @@ function route() {
     else if (a === 'alerts' || a === 'wish') viewWishlist();
     else if (a === 'expenses') viewExpenses();
     else if (a === 'sealed') viewSealed();
+    else if (a === 'sealeditem') viewSealedItem(b);
     else if (a === 'sell') viewSell();
     else if (a === 'more') viewMore();
     else if (a === 'settings') viewSettings();
