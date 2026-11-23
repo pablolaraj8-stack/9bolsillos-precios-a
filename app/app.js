@@ -72,8 +72,8 @@ function imgTag(base, size, cls, alt, extra = '') {
 
 /* ---------- colección (localStorage) ---------- */
 function loadCol() {
-  try { const c = JSON.parse(localStorage.getItem(STORE_KEY)); if (c && c.cards) return Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {} }, c); } catch (e) {}
-  return { cards: {}, sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {} };
+  try { const c = JSON.parse(localStorage.getItem(STORE_KEY)); if (c && c.cards) return Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, extra: {} }, c); } catch (e) {}
+  return { cards: {}, sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, extra: {} };
 }
 let COL = loadCol();
 function saveCol() { COL.updatedAt = Date.now(); localStorage.setItem(STORE_KEY, JSON.stringify(COL)); if (typeof schedulePush === 'function') schedulePush(); }
@@ -97,6 +97,7 @@ function openDb(bytes) {
   DB = db; PRICE_DATE = ok[0].values[0][0];
   HAS_HISTORY = db.exec("SELECT 1 FROM sqlite_master WHERE name='history'").length > 0;
   HAS_FOIL = db.exec("SELECT 1 FROM pragma_table_info('card_variants') WHERE name='foil'").length > 0;
+  HAS_EXTRA = db.exec("SELECT 1 FROM sqlite_master WHERE name='cm_extra'").length > 0;
   if (!db.exec("SELECT 1 FROM pragma_table_info('cards') WHERE name='illustrator'").length) throw new Error('Base de datos antigua: carga la versión nueva (con ilustradores)');
 }
 
@@ -111,7 +112,7 @@ function vPrice(v) {
   return PRICE_MODE === 'low' ? (v.low ?? v.trend ?? v.avg30 ?? null) : (v.trend ?? v.avg30 ?? v.low ?? null);
 }
 function rPrice(r) { return !r ? null : PRICE_MODE === 'low' ? (r.low ?? r.trend ?? r.avg30 ?? null) : (r.trend ?? r.avg30 ?? r.low ?? null); }
-let HAS_FOIL = false;
+let HAS_FOIL = false, HAS_EXTRA = false;
 const VSQL_ = () => `SELECT v.card_id, v.cm_product_id, v.variant, v.subtype, v.stamp, v.ambiguous,${HAS_FOIL ? ' v.foil, v.langs,' : ''}
   p.low, p.trend, p.avg, p.avg1, p.avg7, p.avg30, p.low_holo, p.trend_holo, p.avg7_holo, p.avg30_holo
   FROM card_variants v LEFT JOIN prices p ON p.cm_product_id = v.cm_product_id`;
@@ -141,6 +142,22 @@ function markPatterns(vs) {
 }
 const vLabel = v => [v.pattern ? (v.variant === 'reverse' ? 'Reverse ' : v.variant === 'holo' ? 'Holo ' : '') + v.pattern : v.variant === 'normal' ? 'Normal' : v.variant === 'reverse' ? 'Reverse holo' : v.variant === 'holo' ? 'Holo' : v.variant || 'Estándar',
   v.subtype, v.stamp].filter(Boolean).join(' · ');
+/* ---------- copias: idioma, estado y gradeo de cada ejemplar ---------- */
+const COPY_LANGS = ['ES', 'EN', 'JP', 'FR', 'DE', 'IT', 'PT', 'KO', 'ZH'];
+const CONDS = ['MT', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO'];
+const GRADERS = ['PSA', 'BGS', 'CGC', 'PCA', 'GradingClub', 'Otra'];
+function copiesOf(id) {
+  const e = COL.cards[id]; if (!e) return [];
+  if (e.copies && e.copies.length) return e.copies;
+  return Array.from({ length: e.qty || 1 }, () => ({ lang: null, cond: null, buy: e.buy ?? null }));
+}
+// Valor de tus copias: las gradeadas con valor puesto a mano cuentan ese valor; el resto, el precio de la carta
+function cardValue(id, p) { return copiesOf(id).reduce((t, c) => t + (c.grader && c.gval != null ? c.gval : (p || 0)), 0); }
+function cardCost(id, p) { let cost = 0, val = 0; copiesOf(id).forEach(c => { if (c.buy != null && (p != null || c.gval != null)) { cost += c.buy; val += c.grader && c.gval != null ? c.gval : p; } }); return [cost, val]; }
+function copyBadge(id) {
+  const cs = copiesOf(id).filter(c => c.lang || c.grader); if (!cs.length) return '';
+  const g = cs.find(c => c.grader); return g ? `${g.grader} ${g.grade || ''}`.trim() : [...new Set(cs.map(c => c.lang))].join('/');
+}
 function cheapest(vs) { let b = null; (vs || []).forEach(v => { const p = vPrice(v); if (p != null && (b == null || p < b)) b = p; }); return b; }
 function ownedVariant(cardId, vs) {
   const e = COL.cards[cardId]; if (!e) return null;
@@ -182,8 +199,8 @@ function viewHome() {
   if (ids.length) q(`SELECT c.card_id, CASE WHEN s.lang='es' THEN 'int' ELSE 'asia' END region FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => regions[r.card_id] = r.region);
   ids.forEach(id => {
     const e = COL.cards[id], v = ownedVariant(id, vmap[id]), p = vPrice(v), qty = e.qty || 1;
-    if (p != null) { total += p * qty; regions[id] === 'asia' ? jpV += p * qty : intV += p * qty; }
-    if (e.buy && p != null) { cost += e.buy * qty; costVal += p * qty; }
+    if (p != null || copiesOf(id).some(c => c.gval != null)) { const cv = cardValue(id, p); total += cv; regions[id] === 'asia' ? jpV += cv : intV += cv; }
+    const [cc, cvv] = cardCost(id, p); cost += cc; costVal += cvv;
     n += qty; owned.push({ id, v, p, qty, e });
   });
   const sealedIds = Object.keys(COL.sealed).map(Number);
@@ -193,16 +210,22 @@ function viewHome() {
   // Versiones extra del máster set
   const mids = Object.keys(COL.master || {});
   if (mids.length) { const mv = variantsOf(mids); mids.forEach(id => { uniqVariants(mv[id]).forEach(v => { if (COL.master[id][vkey(v)]) { const p = vPrice(v); if (p != null) { total += p; regions[id] === 'asia' ? jpV += p : intV += p; } } }); }); }
+  // Cartas extra vía Cardmarket (japonesas que faltan en la base de datos)
+  const xids = Object.keys(COL.extra || {}).map(Number);
+  if (HAS_EXTRA && xids.length) q(`SELECT cm_product_id, trend, avg30, low FROM prices WHERE cm_product_id IN (${xids.map(() => '?').join(',')})`, xids)
+    .forEach(r => { const p = rPrice(r); if (p != null) { const v = p * (COL.extra[r.cm_product_id].qty || 1); total += v; jpV += v; } });
+  xids.forEach(x => n += (COL.extra[x].qty || 1));
   total += sealedV;
 
   // historial del portfolio
-  const hist = historyFor([...new Set(owned.filter(o => o.v).map(o => o.v.cm_product_id).concat(sealedIds))]);
+  const hist = historyFor([...new Set(owned.filter(o => o.v).map(o => o.v.cm_product_id).concat(sealedIds, xids))]);
   const byDay = {};
   const want = {}; owned.forEach(o => { if (o.v) (want[o.v.cm_product_id] ||= []).push(o); });
   hist.forEach(h => {
     let s = 0;
     (want[h.cm_product_id] || []).forEach(o => { const c = isRevHolo(o.v) ? h.trend_holo_c : h.trend_c; if (c != null) s += c / 100 * o.qty; });
     if (COL.sealed[h.cm_product_id] && h.trend_c != null) s += h.trend_c / 100 * (COL.sealed[h.cm_product_id].qty || 1);
+    if (COL.extra && COL.extra[h.cm_product_id] && h.trend_c != null) s += h.trend_c / 100 * (COL.extra[h.cm_product_id].qty || 1);
     byDay[h.day] = (byDay[h.day] || 0) + s;
   });
   let days = Object.keys(byDay).map(Number).sort();
@@ -228,7 +251,7 @@ function viewHome() {
   const moveTitle = { up: 'Mayores subidas', down: 'Mayores bajadas', abs: 'Mayor variación en €' }[homeMoves];
   const moveBase = useHist ? `desde el ${dayToStr(lim)}` : 'vs media 30 días';
   // Tus cartas más valiosas (precio × copias)
-  const top = owned.filter(o => o.v && o.p != null).map(o => Object.assign({}, o, { tv: o.p * o.qty })).sort((a, b) => b.tv - a.tv).slice(0, topN);
+  const top = owned.filter(o => o.v && o.p != null).map(o => Object.assign({}, o, { tv: cardValue(o.id, o.p), badge: copyBadge(o.id) })).sort((a, b) => b.tv - a.tv).slice(0, topN);
   const names = {};
   const nameIds = [...new Set(movers.map(m => m.id).concat(top.map(t => t.id)))];
   if (nameIds.length) q(`SELECT c.card_id, COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local) name, c.local_id, c.image_base, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${nameIds.map(() => '?').join(',')})`, nameIds).forEach(r => names[r.card_id] = r);
@@ -247,7 +270,7 @@ function viewHome() {
       <div class="bar" style="display:flex;gap:2px;background:none">${[[intV, 'var(--up)'], [jpV, 'var(--down)'], [sealedV, 'var(--blue)']].filter(x => x[0] > 0).map(x => `<div style="width:${x[0] / total * 100}%;background:${x[1]};border-radius:3px"></div>`).join('')}</div>
       <div class="row muted" style="gap:18px;flex-wrap:wrap"><span>Español/inglés <b style="color:var(--tx)">${eur(intV)}</b></span><span>Japonés y otros <b style="color:var(--tx)">${eur(jpV)}</b></span><span>Sellado <b style="color:var(--tx)">${eur(sealedV)}</b></span></div></div>` : ''}
     ${top.length ? `<div class="col" style="gap:8px"><div class="between"><h2>Tus cartas más valiosas</h2>${owned.length > 8 ? `<button class="pill" id="topmore">${topN > 8 ? 'Ver menos' : 'Ver 25'}</button>` : ''}</div>
-      <div class="list">${top.map((t, i) => { const r = names[t.id] || {}; return `<a class="item" href="#/card/${encodeURIComponent(t.id)}"><span class="muted" style="width:22px;text-align:right;font-weight:700">${i + 1}</span>${img(r.image_base, 'thumb', '', t.id)}<div class="col" style="flex:1"><b>${esc(r.name)} · ${esc(r.local_id)}</b><span class="muted">${esc(r.set_name)} · ${esc(vLabel(t.v))}${t.qty > 1 ? ' · ' + t.qty + ' uds' : ''}</span></div><div class="col" style="align-items:flex-end"><b>${eur(t.tv)}</b>${t.qty > 1 ? `<span class="muted" style="font-size:12px">${eur(t.p)}/ud</span>` : ''}</div></a>`; }).join('')}</div></div>` : ''}
+      <div class="list">${top.map((t, i) => { const r = names[t.id] || {}; return `<a class="item" href="#/card/${encodeURIComponent(t.id)}"><span class="muted" style="width:22px;text-align:right;font-weight:700">${i + 1}</span>${img(r.image_base, 'thumb', '', t.id)}<div class="col" style="flex:1"><b>${esc(r.name)} · ${esc(r.local_id)}</b><span class="muted">${esc(r.set_name)} · ${esc(vLabel(t.v))}${t.qty > 1 ? ' · ' + t.qty + ' uds' : ''}${t.badge ? ' · ' + esc(t.badge) : ''}</span></div><div class="col" style="align-items:flex-end"><b>${eur(t.tv)}</b>${t.qty > 1 ? `<span class="muted" style="font-size:12px">${eur(t.p)}/ud</span>` : ''}</div></a>`; }).join('')}</div></div>` : ''}
     ${allMoves.length ? `<div class="col" style="gap:8px"><div class="between" style="flex-wrap:wrap;gap:8px"><h2>${moveTitle} <span class="muted">(${moveBase})</span></h2>
       <div class="pills">${[['up', 'Subidas'], ['down', 'Bajadas'], ['abs', 'Variación €']].map(([k, l]) => `<button class="pill ${homeMoves === k ? 'on' : ''}" data-mv2="${k}">${l}</button>`).join('')}</div></div>
       <div class="list">${movers.map(m => {
@@ -337,7 +360,7 @@ function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
   const draw = () => {
     const E = entries();
     let have = 0, missCost = 0, val = 0;
-    E.forEach(e => { const p = priceOf(e) || 0; if (owns(e)) { have++; val += p * (e.k ? 1 : (COL.cards[e.c.card_id].qty || 1)); } else missCost += p; });
+    E.forEach(e => { const p = priceOf(e) || 0; if (owns(e)) { have++; val += e.k ? p : cardValue(e.c.card_id, p); } else missCost += p; });
     const p = E.length ? have / E.length * 100 : 0;
     headEl.innerHTML = `<div class="between"><b>${MASTER ? 'Máster set: ' : ''}Tienes ${have} de ${E.length}${MASTER ? ' versiones' : ''}</b><b class="up" style="font-size:22px">${Math.round(p)} %</b></div>
       <div class="bar"><div style="width:${p}%"></div></div>
@@ -551,6 +574,36 @@ function viewIllustrator(name) {
   wireControls(() => viewIllustrator(name));
   cardBrowser('ill:' + name + ':' + illLang, cards, vmap, document.getElementById('grid'), document.getElementById('ihead'),
     { kind: 'ill', sub: c => `${c.set_name} · ${c.local_id}${illLang === 'all' ? ' · ' + (c.lang === 'ja' ? 'JP' : c.lang.toUpperCase()) : ''}` })();
+  if (HAS_EXTRA && illLang !== 'es') extraSection(name);
+}
+// Cartas que Cardmarket vende pero que no están en la base de datos (sobre todo japonesas antiguas).
+// Se emparejan con su versión inglesa por nombre + ataques, así que conviene revisarlas.
+function extraSection(name) {
+  const rows = q(`SELECT e.cm_product_id, e.name, e.cm_expansion_id, e.date_added, c.image_base, p.trend, p.avg30, p.low
+    FROM cm_extra e LEFT JOIN cards c ON c.card_id = e.ref_card_id LEFT JOIN prices p ON p.cm_product_id = e.cm_product_id
+    WHERE e.illustrator = ? COLLATE NOCASE ORDER BY e.date_added IS NULL, e.date_added, e.name`, [name]);
+  if (!rows.length) return;
+  const box = document.createElement('div'); box.className = 'stack'; box.id = 'xtra';
+  $view.querySelector('.stack').appendChild(box);
+  const draw = () => {
+    const own = rows.filter(r => COL.extra[r.cm_product_id]).length;
+    box.innerHTML = `<div class="between"><h2>Más cartas (vía Cardmarket)</h2><span class="muted">${own}/${rows.length}</span></div>
+      <p class="muted">Cartas de ${esc(name)} que Cardmarket vende y no están en la guía (sobre todo japonesas). Se han emparejado por nombre y ataques con su versión inglesa: la imagen es la inglesa y puede colarse alguna promo o carta china. Toca para marcarla como tuya.</p>
+      <div class="grid">${rows.map(r => { const o = COL.extra[r.cm_product_id], p = rPrice(r);
+        return `<div class="tile ${o ? 'has' : 'miss'}" data-x="${r.cm_product_id}">
+          <div class="img"><span class="fbn" ${r.image_base ? 'style="display:none"' : ''}>${esc(r.name)}</span>${imgTag(r.image_base, 'low', '', r.name)}
+            <span class="vtag">CM</span><button class="own" aria-label="${o ? 'Quitar' : 'Añadir'}: ${esc(r.name)}">${o ? (o.qty > 1 ? '×' + o.qty : '✓') : '＋'}</button></div>
+          <span class="num">${r.date_added ? r.date_added.slice(0, 4) : 's/f'} · <a target="_blank" rel="noopener" href="https://www.cardmarket.com/es/Pokemon/Products/Singles?${r.cm_expansion_id ? 'idExpansion=' + r.cm_expansion_id + '&' : ''}searchString=${encodeURIComponent(r.name)}">Cardmarket ↗</a></span>
+          <span class="nm">${esc(r.name)}</span><span class="pr">${eur(p)}</span></div>`; }).join('')}</div>`;
+    box.querySelectorAll('[data-x]').forEach(t => t.onclick = ev => {
+      if (ev.target.closest('a')) return;
+      const id = t.dataset.x, cur = COL.extra[id];
+      if (!cur) COL.extra[id] = { qty: 1, added: PRICE_DATE };
+      else if (confirm('¿Quitar esta carta de tu colección? (Cancelar = añadir otra copia)')) delete COL.extra[id]; else cur.qty = (cur.qty || 1) + 1;
+      saveCol(); draw();
+    });
+  };
+  draw();
 }
 
 function viewCard(cardId) {
@@ -567,7 +620,10 @@ function viewCard(cardId) {
     const al = sel ? COL.alerts[sel.cm_product_id + '|' + (sel.variant || '')] : null;
     const sl = COL.sell[cardId];
     const uv = uniqVariants(vs).filter(Boolean), ok = ownedKeys(cardId, vs);
-    const profit = e && e.buy && p != null ? (p - e.buy) * (e.qty || 1) : null;
+    const [pc, pv] = e ? cardCost(cardId, p) : [0, 0], profit = pc ? pv - pc : null;
+    const defLang = c.region === 'asia' ? 'JP' : 'ES';
+    const cps = e ? copiesOf(cardId).map(x => Object.assign({ lang: defLang, cond: 'NM' }, x, { lang: x.lang || defLang, cond: x.cond || 'NM' })) : [];
+    const sel_ = (name, i, opts, val, extra = '') => `<select data-cp="${i}" data-k="${name}" ${extra}>${opts.map(o => `<option ${o === val ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
     $view.innerHTML = `<div class="stack">
       <div class="row"><a href="#/set/${encodeURIComponent(c.set_id)}" class="pill" style="display:flex;align-items:center">←</a><span class="muted">${esc(c.set_name)} · ${esc(c.local_id)}${c.card_count ? '/' + c.card_count : ''} · ${esc(c.rarity || '')}</span></div>
       <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
@@ -587,10 +643,17 @@ function viewCard(cardId) {
       ${uv.length > 1 ? `<div class="card col" style="gap:8px"><b>Versiones para el máster set</b>${uv.map((v, i) => { const hv = (COL.hide || {})[cardId + '|' + vkey(v)]; return `<div class="row" style="min-height:40px;${hv ? 'opacity:.45' : ''}"><label class="row" style="flex:1;cursor:pointer"><input type="checkbox" data-mv="${i}" ${ok.has(vkey(v)) ? 'checked' : ''} style="width:20px;height:20px;accent-color:#3DDC97"><span style="flex:1">${esc(v ? vLabel(v) : 'Estándar')}${v && v.notEs ? ' <span class="muted">(no sale en español)</span>' : ''}${v && v.stamp ? ' <span class="muted">(promo con sello, fuera del máster set)</span>' : ''}</span><b>${eur(vPrice(v))}</b></label><button class="pill" style="font-size:12px;min-height:34px" data-hv="${i}">${hv ? 'Mostrar' : 'No existe'}</button></div>`; }).join('')}</div>` : ''}
       <button class="pill" id="hidecard" style="align-self:flex-start;font-size:13px">${(COL.hide || {})[cardId] ? 'Volver a mostrar esta carta en el set' : 'Esta carta no existe en español: ocultarla del set'}</button>
       <div class="card col" style="gap:12px"><b>${e ? 'En tu colección' : 'No la tienes'}</b>
-        ${e ? `<div class="row" style="flex-wrap:wrap"><label class="f">Cantidad<input type="number" id="qty" min="1" value="${e.qty || 1}" style="width:90px"></label>
-          <label class="f">Precio de compra (€/ud)<input type="number" id="buy" step="0.01" min="0" value="${e.buy ?? ''}" style="width:150px"></label></div>
-          ${profit != null ? `<span class="${profit >= 0 ? 'up' : 'down'}" style="font-weight:700">${profit >= 0 ? '+' : '−'}${eur(Math.abs(profit))} (${pct((p - e.buy) / e.buy * 100)})</span>` : ''}
-          <div class="row"><button class="btn" id="save">Guardar</button><button class="btn warn" id="del">Quitar</button></div>`
+        ${e ? `<span class="muted">Tus copias (${cps.length}). Si una está gradeada, pon su valor: la app no tiene precios de cartas gradeadas.</span>
+          <div class="col" style="gap:10px">${cps.map((x, i) => `<div class="copy"><b class="muted" style="min-width:22px">#${i + 1}</b>
+            <label class="f">Idioma${sel_('lang', i, COPY_LANGS, x.lang)}</label>
+            <label class="f">Estado${sel_('cond', i, CONDS, x.cond, x.grader ? 'disabled' : '')}</label>
+            <label class="f">Gradeo${sel_('grader', i, ['No'].concat(GRADERS), x.grader || 'No')}</label>
+            ${x.grader ? `<label class="f">Nota<input type="text" data-cp="${i}" data-k="grade" value="${esc(x.grade || '')}" placeholder="10" style="width:64px"></label>
+              <label class="f">Valor (€)<input type="number" step="0.01" min="0" data-cp="${i}" data-k="gval" value="${x.gval ?? ''}" style="width:100px"></label>` : ''}
+            <label class="f">Pagaste (€)<input type="number" step="0.01" min="0" data-cp="${i}" data-k="buy" value="${x.buy ?? ''}" style="width:100px"></label>
+            <button class="pill" data-cpdel="${i}" aria-label="Quitar copia ${i + 1}">✕</button></div>`).join('')}</div>
+          ${profit != null ? `<span class="${profit >= 0 ? 'up' : 'down'}" style="font-weight:700">${profit >= 0 ? '+' : '−'}${eur(Math.abs(profit))} (${pct(profit / pc * 100)}) sobre lo que pagaste</span>` : ''}
+          <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="cpadd">＋ Añadir copia</button><button class="btn" id="save">Guardar</button><button class="btn warn" id="del">Quitar de la colección</button></div>`
         : `<button class="btn" id="add">＋ La tengo</button>`}</div>
       ${sel ? `<div class="card col" style="gap:12px"><b>${al ? '♥ En tu lista de deseos' : 'Lista de deseos'}</b>
         <label class="f" for="tg">Precio objetivo (opcional): te avisa si esta versión baja de</label>
@@ -608,7 +671,15 @@ function viewCard(cardId) {
     const cd = document.getElementById('cdel'); if (cd) cd.onclick = async () => { delete CUSTOM_IMG[cardId]; await idbDel('img:' + cardId); imgsDirty = true; saveCol(); draw(); };
     const vsel = document.getElementById('vsel'); if (vsel) vsel.onchange = () => { sel = vs[+vsel.value]; if (COL.cards[cardId]) { COL.cards[cardId].cm = sel.cm_product_id; COL.cards[cardId].variant = sel.variant; saveCol(); } draw(); };
     const add = document.getElementById('add'); if (add) add.onclick = () => { COL.cards[cardId] = { set: c.set_id, cm: sel ? sel.cm_product_id : null, variant: sel ? sel.variant : null, qty: 1 }; saveCol(); viewCard(cardId); };
-    const save = document.getElementById('save'); if (save) save.onclick = () => { const b = document.getElementById('buy').value; Object.assign(COL.cards[cardId], { qty: Math.max(1, parseInt(document.getElementById('qty').value, 10) || 1), buy: b === '' ? null : parseFloat(b) }); saveCol(); toast('Guardado'); viewCard(cardId); };
+    // Copias: se editan sobre "cps" y se guardan con el botón Guardar (o al añadir/quitar)
+    const readCopies = () => { $view.querySelectorAll('[data-cp]').forEach(el => { const i = +el.dataset.cp, k = el.dataset.k; let v = el.value;
+      if (k === 'buy' || k === 'gval') v = v === '' ? null : parseFloat(v); if (k === 'grader' && v === 'No') v = null; cps[i][k] = v; }); };
+    const storeCopies = () => { const ent = COL.cards[cardId]; ent.copies = cps.map(x => Object.assign({}, x, x.grader ? {} : { grade: undefined, gval: undefined })); ent.qty = cps.length;
+      const buys = cps.map(x => x.buy).filter(x => x != null); ent.buy = buys.length ? Math.round(buys.reduce((t, x) => t + x, 0) / buys.length * 100) / 100 : null; saveCol(); };
+    $view.querySelectorAll('select[data-k="grader"]').forEach(el => el.onchange = () => { readCopies(); storeCopies(); draw(); });
+    const cpadd = document.getElementById('cpadd'); if (cpadd) cpadd.onclick = () => { readCopies(); cps.push({ lang: defLang, cond: 'NM', buy: null }); storeCopies(); draw(); };
+    $view.querySelectorAll('[data-cpdel]').forEach(b => b.onclick = () => { readCopies(); cps.splice(+b.dataset.cpdel, 1); if (!cps.length) { delete COL.cards[cardId]; saveCol(); viewCard(cardId); return; } storeCopies(); draw(); });
+    const save = document.getElementById('save'); if (save) save.onclick = () => { readCopies(); storeCopies(); toast('Guardado'); draw(); };
     const del = document.getElementById('del'); if (del) del.onclick = () => { delete COL.cards[cardId]; saveCol(); viewCard(cardId); };
     const sa = document.getElementById('setal'); if (sa) sa.onclick = () => { const v = document.getElementById('tg').value, t = v === '' ? null : parseFloat(v); COL.alerts[sel.cm_product_id + '|' + (sel.variant || '')] = { card: cardId, cm: sel.cm_product_id, variant: sel.variant, target: t > 0 ? t : null, created: (al && al.created) || PRICE_DATE }; saveCol(); toast('Guardada en tu lista de deseos'); draw(); };
     const da = document.getElementById('delal'); if (da) da.onclick = () => { delete COL.alerts[sel.cm_product_id + '|' + (sel.variant || '')]; saveCol(); draw(); };
@@ -657,7 +728,7 @@ function viewWishlist() {
     if (v === null) return;
     const price = parseFloat(String(v).replace(',', '.')) || null;
     const cur = COL.cards[a.card];
-    if (cur) cur.qty = (cur.qty || 1) + 1; else COL.cards[a.card] = { set: a.card.slice(0, a.card.lastIndexOf('-')), cm: a.cm, variant: a.variant, qty: 1, buy: price };
+    if (cur) { cur.qty = (cur.qty || 1) + 1; if (cur.copies) cur.copies.push({ lang: null, cond: 'NM', buy: price }); } else COL.cards[a.card] = { set: a.card.slice(0, a.card.lastIndexOf('-')), cm: a.cm, variant: a.variant, qty: 1, buy: price };
     COL.purchases.push({ id: Date.now(), date: new Date().toISOString().slice(0, 10), type: 'single', desc: a.info.name + ' · ' + a.info.set_name, qty: 1, price, shop: '', card: a.card, cm: a.cm, variant: a.variant });
     delete COL.alerts[a.key]; saveCol(); toast('Añadida a tu colección y a tus gastos'); viewWishlist();
   });
@@ -769,7 +840,7 @@ function viewExpenses() {
     const addc = document.getElementById('padcol');
     if (linkPick && addc && addc.checked) {
       const unit = price != null ? Math.round(price / qty * 100) / 100 : null;
-      if (linkPick.card) { const cur = COL.cards[linkPick.card]; if (cur) cur.qty = (cur.qty || 1) + qty; else COL.cards[linkPick.card] = { set: linkPick.card.slice(0, linkPick.card.lastIndexOf('-')), cm: linkPick.cm, variant: linkPick.variant, qty, buy: unit }; }
+      if (linkPick.card) { const cur = COL.cards[linkPick.card]; if (cur) { cur.qty = (cur.qty || 1) + qty; if (cur.copies) for (let i = 0; i < qty; i++) cur.copies.push({ lang: null, cond: 'NM', buy: unit }); } else COL.cards[linkPick.card] = { set: linkPick.card.slice(0, linkPick.card.lastIndexOf('-')), cm: linkPick.cm, variant: linkPick.variant, qty, buy: unit }; }
       else { const cur = COL.sealed[linkPick.cm]; if (cur) { cur.buy = cur.buy && unit ? Math.round(((cur.buy * (cur.qty || 1)) + unit * qty) / ((cur.qty || 1) + qty) * 100) / 100 : (cur.buy || unit); cur.qty = (cur.qty || 1) + qty; } else COL.sealed[linkPick.cm] = { qty, buy: unit }; }
     }
     COL.purchases.push(pu); linkPick = null; saveCol(); toast('Compra guardada'); viewExpenses();
@@ -854,7 +925,7 @@ function viewSell() {
   $view.querySelectorAll('[data-sold]').forEach(b => b.onclick = () => {
     const id = b.dataset.sold, e = COL.sell[id], c = COL.cards[id];
     if (!confirm('¿Marcar como vendida? Se quita de la lista de venta y se descuenta de tu colección.')) return;
-    if (c) { c.qty = (c.qty || 1) - (e.qty || 1); if (c.qty <= 0) delete COL.cards[id]; }
+    if (c) { c.qty = (c.qty || 1) - (e.qty || 1); if (c.copies) c.copies.splice(0, e.qty || 1); if (c.qty <= 0) delete COL.cards[id]; }
     delete COL.sell[id]; saveCol(); toast('Vendida'); viewSell();
   });
   $view.querySelectorAll('[data-wall]').forEach(b => b.onclick = async () => {
@@ -897,6 +968,7 @@ function viewSettings() {
   const days = HAS_HISTORY ? q('SELECT COUNT(DISTINCT day) n FROM history')[0].n : 0;
   $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center">←</a><h1>Ajustes</h1></div>
     ${syncCard()}
+    <div class="card col" style="gap:10px" id="pushcard"></div>
     <div class="card col" style="gap:10px"><b>Base de datos</b><span class="muted">Precios del ${PRICE_DATE.split('-').reverse().join('/')} · ${days} día${days === 1 ? '' : 's'} de historial</span>
       <span class="muted">${ONLINE ? 'Se actualiza sola cada vez que abres la app y hay precios nuevos.' : 'Para actualizar: descarga <b>9bolsillos.db</b> de tu repositorio de GitHub (Releases → datos) y cárgala aquí.'}</span>
       <label class="btn sec" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Cargar base de datos nueva<input type="file" id="dbf" accept=".db" hidden></label></div>
@@ -913,10 +985,11 @@ function viewSettings() {
   </div>`;
   document.getElementById('dbf').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const b = await f.arrayBuffer(); openDb(b); await idbPut('db', b); await idbPut('db_date', PRICE_DATE); toast('Base de datos actualizada'); viewSettings(); } catch (e) { alert('No se pudo cargar: ' + e.message); } };
   wireSync(viewSettings);
+  pushCard();
   $view.querySelectorAll('[data-ne]').forEach(b => b.onclick = () => { SHOW_NON_ES = b.dataset.ne === '1'; try { localStorage.setItem('9b.showNonEs', SHOW_NON_ES ? '1' : '0'); } catch (e) {} viewSettings(); });
   $view.querySelectorAll('[data-pm]').forEach(b => b.onclick = () => { PRICE_MODE = b.dataset.pm; try { localStorage.setItem('9b.priceMode', PRICE_MODE); } catch (e) {} toast(PRICE_MODE === 'low' ? 'Usando la oferta más baja' : 'Usando la tendencia'); viewSettings(); });
   document.getElementById('exp').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(Object.assign({}, COL, { images: CUSTOM_IMG }), null, 1)], { type: 'application/json' })); a.download = `9bolsillos-coleccion-${new Date().toISOString().slice(0, 10)}.json`; a.click(); };
-  document.getElementById('imp').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const c = JSON.parse(await f.text()); if (!c.cards) throw new Error('formato'); if (!confirm('Esto sustituye tu colección actual por la de la copia. ¿Seguir?')) return; const imgs = c.images || {}; delete c.images; COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {} }, c); saveCol(); for (const [k, v] of Object.entries(imgs)) { CUSTOM_IMG[k] = v; await idbPut('img:' + k, v); } toast('Colección importada'); viewSettings(); } catch (e) { alert('Archivo no válido'); } };
+  document.getElementById('imp').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const c = JSON.parse(await f.text()); if (!c.cards) throw new Error('formato'); if (!confirm('Esto sustituye tu colección actual por la de la copia. ¿Seguir?')) return; const imgs = c.images || {}; delete c.images; COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, extra: {} }, c); saveCol(); for (const [k, v] of Object.entries(imgs)) { CUSTOM_IMG[k] = v; await idbPut('img:' + k, v); } toast('Colección importada'); viewSettings(); } catch (e) { alert('Archivo no válido'); } };
 }
 
 function viewWelcome(msg) {
@@ -967,7 +1040,7 @@ async function syncNow(quiet) {
       if (!quiet) toast('Colecciones unidas y sincronizadas');
       if (DB) route();
     } else if (remote && rt > lt) {
-      COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {} }, remote);
+      COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, extra: {} }, remote);
       localStorage.setItem(STORE_KEY, JSON.stringify(COL));
       for (const [k, v] of Object.entries(data.images || {})) { if (CUSTOM_IMG[k] !== v) { CUSTOM_IMG[k] = v; await idbPut('img:' + k, v); } }
       for (const k of Object.keys(CUSTOM_IMG)) if (!(data.images || {})[k]) { delete CUSTOM_IMG[k]; await idbDel('img:' + k); }
@@ -983,7 +1056,7 @@ async function syncNow(quiet) {
 }
 function mergeCols(a, b) {
   const out = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, hide: {}, setHide: {} }, a);
-  for (const k of ['cards', 'sealed', 'alerts', 'illustrators', 'sell', 'hide']) out[k] = Object.assign({}, a[k] || {}, b[k] || {});
+  for (const k of ['cards', 'sealed', 'alerts', 'illustrators', 'sell', 'hide', 'extra']) out[k] = Object.assign({}, a[k] || {}, b[k] || {});
   out.master = Object.assign({}, a.master || {}); for (const [id, m] of Object.entries(b.master || {})) out.master[id] = Object.assign({}, out.master[id] || {}, m);
   out.setHide = Object.assign({}, a.setHide || {}); for (const [id, l] of Object.entries(b.setHide || {})) out.setHide[id] = [...new Set([...(out.setHide[id] || []), ...l])];
   const ids = new Set((a.purchases || []).map(p => p.id)); out.purchases = (a.purchases || []).concat((b.purchases || []).filter(p => !ids.has(p.id)));
@@ -1004,6 +1077,46 @@ function schedulePush() {
 }
 // Al volver a la app (por ejemplo, cambiar del móvil al ordenador), trae los cambios
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncNow(true); });
+
+/* ---------- avisos al móvil (Web Push) ---------- */
+const PUSH_OK = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const STANDALONE = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+let SW_REG = null;
+function registerSw() { if (!('serviceWorker' in navigator) || location.protocol === 'file:') return Promise.resolve(null); return navigator.serviceWorker.register('sw.js').then(r => SW_REG = r).catch(e => { console.warn('SW:', e); return null; }); }
+function b64u(s) { const p = '='.repeat((4 - s.length % 4) % 4), b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, c => c.charCodeAt(0)); }
+async function currentSub() { const r = SW_REG || await registerSw(); return r ? r.pushManager.getSubscription() : null; }
+async function pushCard() {
+  const el = document.getElementById('pushcard'); if (!el) return;
+  const key = (window.NB_CONFIG || {}).vapidPublicKey;
+  const head = '<b>Avisos al móvil</b><span class="muted">Te llega una notificación cuando una carta de tu lista de deseos baja de tu precio objetivo. Se comprueba cada mañana, al actualizarse los precios.</span>';
+  let body = '';
+  if (!PUSH_OK) body = IS_IOS && !STANDALONE ? '<span class="muted">En iPhone primero instala la app: en Safari, Compartir → "Añadir a pantalla de inicio", y ábrela desde el icono. Necesita iOS 16.4 o posterior.</span>' : '<span class="muted">Este navegador no admite avisos.</span>';
+  else if (!key) body = '<span class="muted">Falta la clave de avisos (vapidPublicKey) en config.js. Mira el LEEME.</span>';
+  else if (!SB_USER) body = '<span class="muted">Entra en "Sincronizar entre dispositivos" para activar los avisos.</span>';
+  else {
+    const sub = await currentSub().catch(() => null);
+    const perm = Notification.permission;
+    body = perm === 'denied' ? '<span class="muted">Has bloqueado las notificaciones de 9Bolsillos. Actívalas en los ajustes del navegador o del móvil y vuelve aquí.</span>'
+      : sub ? `<span class="up" style="font-weight:600">Activados en este dispositivo</span><span class="muted">${Object.values(COL.alerts).filter(a => a.target).length} deseos con precio objetivo.</span><div class="row" style="flex-wrap:wrap"><button class="btn sec" id="pstest">Probar</button><button class="btn warn" id="psoff">Desactivar aquí</button></div>`
+      : '<div class="row"><button class="btn" id="pson">Activar avisos en este dispositivo</button></div>';
+  }
+  el.innerHTML = head + body;
+  const on = document.getElementById('pson'), off = document.getElementById('psoff'), test = document.getElementById('pstest');
+  if (on) on.onclick = async () => {
+    try {
+      if (await Notification.requestPermission() !== 'granted') { toast('Sin permiso para notificaciones'); return pushCard(); }
+      const r = SW_REG || await registerSw(); await navigator.serviceWorker.ready;
+      const sub = await r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(key) });
+      const { error } = await SB.from('push_subs').upsert({ endpoint: sub.endpoint, user_id: SB_USER.id, sub: sub.toJSON(), ua: navigator.userAgent.slice(0, 200) });
+      if (error) { await sub.unsubscribe(); throw error; }
+      toast('Avisos activados');
+    } catch (e) { alert('No se pudieron activar los avisos: ' + (e.message || e) + (/push_subs/.test(e.message || '') ? '\n\n¿Has ejecutado el SQL de avisos en Supabase? Mira el LEEME.' : '')); }
+    pushCard();
+  };
+  if (off) off.onclick = async () => { const sub = await currentSub(); if (sub) { await SB.from('push_subs').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); } toast('Avisos desactivados en este dispositivo'); pushCard(); };
+  if (test) test.onclick = async () => { const r = SW_REG || await registerSw(); r.showNotification('9Bolsillos', { body: 'Así te llegarán los avisos de precio.', icon: 'icon-192.png', data: { url: './#/wish' } }); };
+}
 
 function syncCard() {
   if (!SB) return `<div class="card col" style="gap:8px"><b>Sincronizar entre dispositivos</b><span class="muted">Sin configurar. Sigue los pasos del archivo LEEME para conectar tu cuenta gratuita de Supabase; después podrás entrar con tu email aquí y en el móvil.</span></div>`;
@@ -1036,7 +1149,7 @@ function wireSync(rerender) {
   if (g('sbdown')) g('sbdown').onclick = async () => { if (!confirm('¿Sustituir la colección de este dispositivo por la de la nube?')) return;
     const { data, error } = await SB.from('collections').select('data, images').eq('user_id', SB_USER.id).maybeSingle();
     if (error || !data || !data.data || !data.data.cards) { alert(error ? 'Error: ' + error.message : 'La nube está vacía'); return; }
-    COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {} }, data.data); localStorage.setItem(STORE_KEY, JSON.stringify(COL)); localStorage.setItem('9b.synced', SB_USER.id);
+    COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, extra: {} }, data.data); localStorage.setItem(STORE_KEY, JSON.stringify(COL)); localStorage.setItem('9b.synced', SB_USER.id);
     for (const [k, v] of Object.entries(data.images || {})) { CUSTOM_IMG[k] = v; await idbPut('img:' + k, v); }
     toast('Colección bajada de la nube'); rerender(); };
 }
@@ -1067,29 +1180,81 @@ function route() {
     else viewHome();
   } catch (e) { console.error(e); $view.innerHTML = `<p class="down">Error: ${esc(e.message)}</p>`; }
 }
-function start() { $tabs.hidden = false; route(); sbInit().catch(e => console.warn('Sync:', e)); }
+function start() { $tabs.hidden = false; registerSw(); route(); sbInit().catch(e => console.warn('Sync:', e)); }
 window.addEventListener('hashchange', route);
 
 // Descarga automática cuando la app está publicada en internet (GitHub Pages)
 const ONLINE = location.protocol.startsWith('http');
-async function autoUpdate() {
-  const v = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
-  if (!v || !v.prices_date) return false;
-  const want = v.prices_date + '|' + (v.built_at || '');
-  const have = await idbGet('db_ver');
-  if (have === want && await idbGet('db')) return false;
-  $view.innerHTML = `<div class="center"><h1>9Bolsillos</h1><p>Descargando precios del ${esc(v.prices_date.split('-').reverse().join('/'))}…</p><p class="muted" id="prog"></p></div>`;
-  const r = await fetch('9bolsillos.db?v=' + encodeURIComponent(want), { cache: 'no-store' });
-  if (!r.ok) throw new Error('No se pudo descargar la base de datos (' + r.status + ')');
+// Descarga solo lo que cambia: la base completa (comprimida) si cambia el catálogo; si no, los precios del día
+// y los días de historial que falten (~1 MB al día en vez de ~26 MB)
+async function fetchBytes(url, label) {
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error('No se pudo descargar ' + url + ' (' + r.status + ')');
   const total = +r.headers.get('content-length') || 0, reader = r.body.getReader(), parts = []; let got = 0;
   for (;;) {
     const { done, value } = await reader.read(); if (done) break;
     parts.push(value); got += value.length;
-    const pg = document.getElementById('prog'); if (pg) pg.textContent = total ? Math.round(got / total * 100) + ' %' : (got / 1048576).toFixed(1) + ' MB';
+    const pg = document.getElementById('prog'); if (pg && label) pg.textContent = label + ' · ' + (total ? Math.round(got / total * 100) + ' %' : (got / 1048576).toFixed(1) + ' MB');
   }
   const bytes = new Uint8Array(got); let off = 0; parts.forEach(p => { bytes.set(p, off); off += p.length; });
-  openDb(bytes.buffer);
-  await idbPut('db', bytes.buffer); await idbPut('db_ver', want);
+  return bytes;
+}
+async function gunzip(bytes) {
+  const ds = new DecompressionStream('gzip');
+  return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer());
+}
+const gzJson = async url => JSON.parse(new TextDecoder().decode(await gunzip(await fetchBytes(url))));
+function showProgress(msg) { $view.innerHTML = `<div class="center"><h1>9Bolsillos</h1><p>${esc(msg)}</p><p class="muted" id="prog"></p></div>`; }
+async function saveDb(meta) { const buf = DB.export().buffer; await idbPut('db', buf); await idbPut('db_meta', meta); }
+async function autoUpdate() {
+  const v = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
+  if (!v || !v.prices_date) return false;
+  if (!v.catalog_ver) {   // publicación antigua: descarga completa sin comprimir
+    const want = v.prices_date + '|' + (v.built_at || '');
+    if ((await idbGet('db_ver')) === want && await idbGet('db')) return false;
+    showProgress('Descargando precios del ' + v.prices_date.split('-').reverse().join('/') + '…');
+    const bytes = await fetchBytes('9bolsillos.db?v=' + encodeURIComponent(want), 'Base de datos');
+    openDb(bytes.buffer); await idbPut('db', bytes.buffer); await idbPut('db_ver', want); return true;
+  }
+  const meta = (await idbGet('db_meta')) || {};
+  const saved = await idbGet('db');
+  const firstDay = (v.history_days || [])[0] || 0, haveDay = +(meta.prices_date || '').replace(/-/g, '');
+  const needFull = !saved || meta.catalog_ver !== v.catalog_ver || meta.schema !== v.schema || (haveDay && haveDay < firstDay - 1);
+  if (needFull) {
+    showProgress(saved ? 'Hay cartas o sets nuevos: actualizando el catálogo…' : 'Descargando el catálogo de cartas (solo la primera vez)…');
+    const raw = await gunzip(await fetchBytes('9bolsillos.db.gz?v=' + v.catalog_ver + v.prices_date, 'Catálogo'));
+    openDb(raw.buffer);
+    await saveDb({ catalog_ver: v.catalog_ver, prices_date: v.prices_date, schema: v.schema });
+    return true;
+  }
+  if (meta.prices_date === v.prices_date) return false;
+  // Solo precios del día + historial que falte
+  openDb(saved);
+  showProgress('Actualizando precios del ' + v.prices_date.split('-').reverse().join('/') + '…');
+  const pr = await gzJson('prices-latest.json.gz?v=' + v.prices_date);
+  DB.run('BEGIN');
+  DB.run('DELETE FROM prices');
+  const st = DB.prepare(`INSERT OR REPLACE INTO prices (cm_product_id, date, ${pr.cols.join(', ')}) VALUES (?, ?, ${pr.cols.map(() => '?').join(', ')})`);
+  pr.rows.forEach(r => { st.run([r[0], pr.date].concat(r.slice(1))); }); st.free();
+  DB.run("INSERT OR REPLACE INTO meta VALUES ('prices_date', ?)", [pr.date]);
+  DB.run('COMMIT');
+  if (HAS_HISTORY) {
+    const haveDays = new Set(q('SELECT DISTINCT day FROM history').map(r => r.day));
+    for (const d of (v.history_days || []).filter(d => !haveDays.has(d))) {
+      const rows = await gzJson('history-' + d + '.json.gz');
+      DB.run('BEGIN'); const hs = DB.prepare('INSERT OR REPLACE INTO history VALUES (?, ?, ?, ?)');
+      rows.forEach(r => hs.run([r[0], d, r[1], r[2]])); hs.free(); DB.run('COMMIT');
+    }
+    // Misma regla que el servidor: diario 90 días, semanal antes
+    const last = (v.history_days || []).slice(-1)[0];
+    if (last) {
+      const dt = new Date(String(last).replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')); dt.setDate(dt.getDate() - 90);
+      const cut = +dt.toISOString().slice(0, 10).replace(/-/g, '');
+      q('SELECT DISTINCT day FROM history WHERE day < ?', [cut]).forEach(r => { const x = new Date(String(r.day).replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')); if (x.getDay() !== 1) DB.run('DELETE FROM history WHERE day = ?', [r.day]); });
+    }
+  }
+  PRICE_DATE = pr.date;
+  await saveDb({ catalog_ver: v.catalog_ver, prices_date: v.prices_date, schema: v.schema });
   return true;
 }
 
