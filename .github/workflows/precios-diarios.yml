@@ -6,7 +6,7 @@ on:
   workflow_dispatch:        # botón "Run workflow" para lanzarlo a mano
   push:
     branches: [main]
-    paths: ["app/**"]       # si cambias la app, se vuelve a publicar
+    paths: ["app/**", "build_db.py", "update_prices.py"]
 
 permissions:
   contents: write
@@ -18,8 +18,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Pega aquí el enlace de descarga de la guía de precios de Pokémon (ver README)
   PRICE_GUIDE_URL: "https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_6.json"
+  SINGLES_URL: "https://downloads.s3.cardmarket.com/productCatalog/productList/products_singles_6.json"
+  SEALED_URL: "https://downloads.s3.cardmarket.com/productCatalog/productList/products_nonsingles_6.json"
   RELEASE_TAG: datos
 
 jobs:
@@ -31,18 +32,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Descargar la base de datos actual
+      - name: Descargar la base de datos actual (para conservar el historial)
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "$RELEASE_TAG" --pattern 9bolsillos.db --clobber
+        run: gh release download "$RELEASE_TAG" --pattern 9bolsillos.db --clobber && mv 9bolsillos.db anterior.db
 
       - name: Descargar la guía de precios de hoy
-        run: |
-          curl -fsSL --retry 3 -A "9Bolsillos-precios/1.0" "$PRICE_GUIDE_URL" -o price_guide.json
-          ls -la price_guide.json
+        run: curl -fsSL --retry 3 -A "9Bolsillos-precios/1.0" "$PRICE_GUIDE_URL" -o price_guide.json
 
-      - name: Añadir precios
-        run: python3 update_prices.py --db 9bolsillos.db --prices price_guide.json
+      - name: Descargar catálogos de Cardmarket (si fallan, se usan los guardados en el repositorio)
+        run: |
+          mkdir -p catalogos
+          curl -fsSL --retry 2 -A "9Bolsillos-precios/1.0" "$SINGLES_URL" -o catalogos/singles.json || cp datos/products_singles_6.json catalogos/singles.json
+          curl -fsSL --retry 2 -A "9Bolsillos-precios/1.0" "$SEALED_URL" -o catalogos/sealed.json || cp datos/products_nonsingles_6.json catalogos/sealed.json
+          ls -la catalogos
+
+      - name: Descargar la base de cartas de TCGdex (sets y cartas nuevas)
+        run: git clone --depth 1 https://github.com/tcgdex/cards-database.git tcgdex
+
+      - name: Reconstruir la base de datos conservando el historial
+        run: |
+          python3 build_db.py --tcgdex tcgdex --singles catalogos/singles.json --sealed catalogos/sealed.json \
+            --prices price_guide.json --history-from anterior.db --out 9bolsillos.db \
+          || (echo "La reconstrucción falló: solo se actualizan los precios" && cp anterior.db 9bolsillos.db && python3 update_prices.py --db 9bolsillos.db --prices price_guide.json)
 
       - name: Guardar la base de datos actualizada
         env:
