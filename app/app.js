@@ -21,9 +21,20 @@ function toast(msg) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
   document.body.appendChild(t); setTimeout(() => t.remove(), 2200);
 }
-function img(base, cls = 'thumb', alt = '') {
-  if (!base) return `<div class="${cls}"></div>`;
-  return `<img class="${cls}" loading="lazy" alt="${esc(alt)}" src="${esc(base)}/low.webp" onerror="this.style.visibility='hidden'">`;
+function img(base, cls = 'thumb', alt = '') { return imgTag(base, 'low', cls, alt); }
+
+
+// Imagen en español si existe; si no, en inglés; si tampoco, se oculta y queda el nombre
+function imgUrls(base, size) {
+  if (!base) return [null, null];
+  const en = base + '/' + size + '.webp';
+  return base.includes('/en/') ? [base.replace('/en/', '/es/') + '/' + size + '.webp', en] : [en, ''];
+}
+const IMG_ERR = "if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb=''}else{this.style.visibility='hidden'}";
+function imgTag(base, size, cls, alt, extra = '') {
+  const [src, fb] = imgUrls(base, size);
+  if (!src) return cls ? `<div class="${cls}"></div>` : '';
+  return `<img ${cls ? `class="${cls}"` : ''} loading="lazy" alt="${esc(alt)}" src="${esc(src)}" data-fb="${esc(fb)}" onerror="${IMG_ERR}" ${extra}>`;
 }
 
 /* ---------- colección (localStorage) ---------- */
@@ -215,7 +226,7 @@ function viewSet(setId) {
     document.getElementById('grid').innerHTML = list.map(c => {
       const has = !!COL.cards[c.card_id], pr = has ? vPrice(ownedVariant(c.card_id, vmap[c.card_id])) : cheapest(vmap[c.card_id]);
       return `<div class="tile ${has ? 'has' : 'miss'}" data-open="${esc(c.card_id)}">
-        <div class="img">${esc(c.name)}${c.image_base ? `<img loading="lazy" alt="" src="${esc(c.image_base)}/low.webp" onerror="this.remove()">` : ''}
+        <div class="img">${esc(c.name)}${imgTag(c.image_base, 'low', '', '')}
           <button class="own" data-own="${esc(c.card_id)}" aria-label="${has ? 'Quitar de' : 'Añadir a'} mi colección: ${esc(c.name)}">${has ? '✓' : '＋'}</button></div>
         <span class="num">${esc(c.local_id)}${s.card_count ? '/' + s.card_count : ''} · ${esc(c.rarity || '')}</span>
         <span class="nm">${esc(c.name)}</span><span class="pr">${eur(pr)}</span></div>`;
@@ -260,7 +271,7 @@ function viewCard(cardId) {
     $view.innerHTML = `<div class="stack">
       <div class="row"><a href="#/set/${encodeURIComponent(c.set_id)}" class="pill" style="display:flex;align-items:center">←</a><span class="muted">${esc(c.set_name)} · ${esc(c.local_id)}${c.card_count ? '/' + c.card_count : ''} · ${esc(c.rarity || '')}</span></div>
       <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
-        ${c.image_base ? `<img class="hero" alt="${esc(c.name)}" src="${esc(c.image_base)}/high.webp" onerror="this.style.visibility='hidden'">` : '<div class="hero"></div>'}
+        ${imgTag(c.image_base, 'high', 'hero', c.name)}
         <div class="col" style="gap:8px;flex:1;min-width:200px">
           <h1>${esc(c.name)}</h1>${c.name_en && c.name_en !== c.name ? `<span class="muted">${esc(c.name_en)}</span>` : ''}${c.name_ja && c.name_ja !== c.name ? `<span class="muted">${esc(c.name_ja)}</span>` : ''}
           <div class="big">${eur(p)}</div><span class="muted">Tendencia en Cardmarket${hol ? ' (reverse holo)' : ''}</span>
