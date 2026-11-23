@@ -3,5 +3,6 @@
 // La "anon public key" está pensada para ir en la web: tus datos los protegen las reglas de la tabla.
 window.NB_CONFIG = {
   supabaseUrl: 'https://yifdeqqojwyigipgnfiy.supabase.co',   // ej.: 'https://abcdefghijkl.supabase.co'
-  supabaseKey: 'sb_publishable_lqDaKwKB3sRmgJ2jDUt1oQ_gaC3TM3U'    // ej.: 'eyJhbGciOi...' (anon public)
+  supabaseKey: 'sb_publishable_lqDaKwKB3sRmgJ2jDUt1oQ_gaC3TM3U',    // ej.: 'eyJhbGciOi...' (anon public)
+  vapidPublicKey: 'BOUWG-tgTofz1Etd4vbLm6aUFM41qxJ20rekRg8lrih69kjWsYYXkGZ3jGzOCZyvlNEIFzjyvN9e24XY3dYAVyQ'
 };
