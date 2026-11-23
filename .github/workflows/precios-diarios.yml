@@ -6,7 +6,7 @@ on:
   workflow_dispatch:        # botón "Run workflow" para lanzarlo a mano
   push:
     branches: [main]
-    paths: ["app/**", "build_db.py", "update_prices.py"]
+    paths: ["app/**", "build_db.py", "update_prices.py", "export_web.py"]
 
 permissions:
   contents: write
@@ -61,17 +61,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$RELEASE_TAG" 9bolsillos.db --clobber
 
-      - name: Preparar la web
+      - name: Preparar la web (descarga diaria ligera)
         run: |
           mkdir -p _site
           cp -r app/* _site/
-          cp 9bolsillos.db _site/
-          python3 -c "import sqlite3,json; m=dict(sqlite3.connect('9bolsillos.db').execute('SELECT key,value FROM meta').fetchall()); json.dump({'prices_date': m.get('prices_date'), 'built_at': m.get('built_at','')}, open('_site/version.json','w'))"
+          python3 export_web.py --db 9bolsillos.db --out _site
+          ls -la _site | head -40
           cat _site/version.json
 
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
       - id: deploy
         uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - name: Reintentar la publicación si ha fallado
+        if: steps.deploy.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+
+      - name: Enviar avisos al móvil
+        if: github.event_name != 'push'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: |
+          pip install --quiet pywebpush
+          python3 notify.py --db 9bolsillos.db --site "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
