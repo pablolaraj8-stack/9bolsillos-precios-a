@@ -24,6 +24,13 @@ function toast(msg) {
 function img(base, cls = 'thumb', alt = '', cardId = null) { return cardId && CUSTOM_IMG[cardId] ? `<img class="${cls}" alt="${esc(alt)}" src="${CUSTOM_IMG[cardId]}">` : imgTag(base, 'low', cls, alt); }
 // Imágenes propias (fotos que sube el usuario), guardadas en el navegador
 const CUSTOM_IMG = {};
+// Logo del set: misma carpeta que las imágenes de sus cartas en TCGdex (logo.webp); español con respaldo en inglés
+function setLogo(base, cls, style = '') {
+  if (!base) return `<div class="${cls}" style="${style}"></div>`;
+  const dir = base.replace(/\/[^/]+$/, '');
+  const urls = dir.includes('/en/') ? [dir.replace('/en/', '/es/') + '/logo.webp', dir + '/logo.webp'] : [dir + '/logo.webp', ''];
+  return `<img class="${cls}" style="${style}" loading="lazy" alt="" src="${esc(urls[0])}" data-fb="${esc(urls[1])}" onerror="${IMG_ERR}">`;
+}
 function cardImg(c, size, cls, alt) { return CUSTOM_IMG[c.card_id] ? `<img ${cls ? `class="${cls}"` : ''} alt="${esc(alt || '')}" src="${CUSTOM_IMG[c.card_id]}">` : imgTag(c.image_base, size, cls, alt || ''); }
 async function loadCustomImgs() {
   const d = await idb();
@@ -208,7 +215,8 @@ const NAME = 'COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local)';
 let setsFilter = 'es', setsQuery = '';
 function viewSets() {
   const rows = q(`SELECT s.set_id, s.lang, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) name, s.serie, s.release_date,
-    (SELECT COUNT(*) FROM cards c WHERE c.set_id = s.set_id) n FROM sets s WHERE n > 0 ORDER BY s.release_date DESC, s.set_id`);
+    (SELECT COUNT(*) FROM cards c WHERE c.set_id = s.set_id) n, (SELECT image_base FROM cards c WHERE c.set_id = s.set_id LIMIT 1) ib
+    FROM sets s WHERE n > 0 ORDER BY s.release_date DESC, s.set_id`);
   const ownCount = {}; Object.values(COL.cards).forEach(e => ownCount[e.set] = (ownCount[e.set] || 0) + 1);
   const draw = () => {
     const ql = setsQuery.toLowerCase();
@@ -216,7 +224,7 @@ function viewSets() {
     const list = rows.filter(r => okLang(r) && (!ql || (r.name || '').toLowerCase().includes(ql) || (r.serie || '').toLowerCase().includes(ql)));
     document.getElementById('setlist').innerHTML = list.map(r => {
       const o = ownCount[r.set_id] || 0, p = Math.round(o / r.n * 100);
-      return `<a class="item" href="#/set/${encodeURIComponent(r.set_id)}"><div class="col" style="flex:1"><b>${esc(r.name)}</b><span class="muted">${esc(r.serie)} · ${r.release_date ? esc(r.release_date.slice(0, 4)) : ''} · ${r.n} cartas${setsFilter === 'otros' || setsFilter === 'mine' ? ' · ' + esc(LANGS[r.lang] || r.lang) : ''}</span>
+      return `<a class="item" href="#/set/${encodeURIComponent(r.set_id)}"><div class="logobox">${setLogo(r.ib, 'setlogo')}</div><div class="col" style="flex:1"><b>${esc(r.name)}</b><span class="muted">${esc(r.serie)} · ${r.release_date ? esc(r.release_date.slice(0, 4)) : ''} · ${r.n} cartas${setsFilter === 'otros' || setsFilter === 'mine' ? ' · ' + esc(LANGS[r.lang] || r.lang) : ''}</span>
         ${o ? `<div class="bar" style="margin-top:4px"><div style="width:${p}%"></div></div>` : ''}</div><span class="muted">${o ? `${o}/${r.n}` : ''}</span></a>`;
     }).join('') || '<p class="muted">No hay sets que coincidan.</p>';
   };
@@ -305,11 +313,13 @@ function viewSet(setId) {
   if (!s) { $view.innerHTML = '<p>Set no encontrado.</p>'; return; }
   const cards = q(`SELECT c.card_id, c.set_id, c.local_id, ${NAME} name, c.rarity, c.image_base FROM cards c WHERE c.set_id=?
     ORDER BY CAST(c.local_id AS INTEGER), c.local_id`, [setId]);
+  const ib = (cards.find(c => c.image_base) || {}).image_base;
   const vmap = variantsOf(cards.map(c => c.card_id));
   const sealed = s.cm_expansion_id ? q(`SELECT p.cm_product_id, p.name, p.category, pr.trend, pr.avg30, pr.low FROM cm_products p LEFT JOIN prices pr USING(cm_product_id)
     WHERE p.kind='sealed' AND p.cm_expansion_id=? ORDER BY pr.trend DESC`, [s.cm_expansion_id]) : [];
   $view.innerHTML = `<div class="stack">
-    <div class="row"><a href="#/sets" class="pill" style="display:flex;align-items:center">←</a><div class="col"><h1>${esc(s.name)}</h1><span class="muted">${esc(s.serie)} · ${esc(s.release_date || '')} · ${esc(LANGS[s.lang] || s.lang)}</span></div></div>
+    <div class="row"><a href="#/sets" class="pill" style="display:flex;align-items:center">←</a></div>
+    <div class="sethero">${setLogo(ib, 'biglogo')}<div class="col" style="align-items:center;text-align:center"><h1>${esc(s.name)}</h1><span class="muted">${esc(s.serie)} · ${esc(s.release_date || '')} · ${esc(LANGS[s.lang] || s.lang)}</span></div></div>
     <div class="card col" style="gap:8px" id="sethead"></div>
     ${browserControls()}
     <div id="grid"></div>
