@@ -4,18 +4,29 @@ on:
   schedule:
     - cron: "17 4 * * *"   # todos los días a las 04:17 UTC (05:17 en Madrid en invierno)
   workflow_dispatch:        # botón "Run workflow" para lanzarlo a mano
+  push:
+    branches: [main]
+    paths: ["app/**"]       # si cambias la app, se vuelve a publicar
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 env:
-  # Pega aquí el enlace de descarga de la guía de precios de Pokémon (ver README)
   PRICE_GUIDE_URL: "https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_6.json"
   RELEASE_TAG: datos
 
 jobs:
   actualizar:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -36,3 +47,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$RELEASE_TAG" 9bolsillos.db --clobber
+
+      - name: Preparar la web
+        run: |
+          mkdir -p _site
+          cp -r app/* _site/
+          cp 9bolsillos.db _site/
+          python3 -c "import sqlite3,json; d=sqlite3.connect('9bolsillos.db').execute(\"SELECT value FROM meta WHERE key='prices_date'\").fetchone()[0]; json.dump({'prices_date': d}, open('_site/version.json','w'))"
+          cat _site/version.json
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
