@@ -236,7 +236,7 @@ function viewHome() {
   const alertsHit = alertStatus().filter(a => a.hit).length;
   const periods = [[7, '1S'], [30, '1M'], [90, '3M'], [365, '1A'], [0, 'Todo']];
   $view.innerHTML = `<div class="stack">
-    <div class="between"><h1>9Bolsillos</h1><a class="pill" style="display:flex;align-items:center" href="#/settings">Ajustes</a></div>
+    <div class="between"><div class="row" style="gap:10px"><img src="icon-192.png" alt="" width="36" height="36" style="border-radius:9px"><h1>9Bolsillos</h1></div><a class="pill" style="display:flex;align-items:center" href="#/settings">Ajustes</a></div>
     ${alertsHit ? `<a class="alertbox" href="#/wish" style="color:var(--tx)"><b class="up">${alertsHit} alerta${alertsHit > 1 ? 's' : ''} de precio</b> ${alertsHit > 1 ? 'han saltado' : 'ha saltado'}. Ver →</a>` : ''}
     <div class="col"><span class="muted">Valor de tu colección · precios del ${PRICE_DATE.split('-').reverse().join('/')}</span>
       <div class="big">${eur(total)}</div>${change}
