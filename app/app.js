@@ -855,8 +855,11 @@ async function sbInit() {
   if (!SB) return;
   const { data } = await SB.auth.getSession();
   SB_USER = data && data.session ? data.session.user : null;
-  SB.auth.onAuthStateChange((_e, session) => { SB_USER = session ? session.user : null; });
-  if (SB_USER) await syncNow(true);
+  // Si estás en Ajustes, se vuelve a dibujar con la sesión ya comprobada
+  const redrawSettings = () => { if (DB && location.hash.startsWith('#/settings')) route(); };
+  SB.auth.onAuthStateChange((_e, session) => { const was = SB_USER && SB_USER.id; SB_USER = session ? session.user : null; if (was !== (SB_USER && SB_USER.id)) redrawSettings(); });
+  redrawSettings();
+  if (SB_USER) { await syncNow(true); redrawSettings(); }
 }
 // Trae la versión de la nube; se queda con la más reciente (la de la nube o la de este dispositivo)
 async function syncNow(quiet) {
@@ -930,7 +933,7 @@ function wireSync(rerender) {
   const g = id => document.getElementById(id);
   if (g('sbin')) g('sbin').onclick = async () => { const { error } = await SB.auth.signInWithPassword({ email: g('sbe').value.trim(), password: g('sbp').value }); if (error) { alert('No se pudo entrar: ' + error.message); return; } const s = await SB.auth.getSession(); SB_USER = s.data.session.user; await syncNow(); rerender(); };
   if (g('sbup')) g('sbup').onclick = async () => { const email = g('sbe').value.trim(), password = g('sbp').value; if (password.length < 8) { alert('La contraseña debe tener al menos 8 caracteres'); return; } const { data, error } = await SB.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } }); if (error) { alert('No se pudo crear la cuenta: ' + error.message); return; } if (data.session) { SB_USER = data.session.user; await syncNow(); rerender(); } else alert('Cuenta creada. Revisa tu email para confirmarla y luego pulsa "Entrar".'); };
-  if (g('sbnow')) g('sbnow').onclick = async () => { await syncNow(); rerender(); };
+  if (g('sbnow')) g('sbnow').onclick = async () => { g('sbnow').textContent = 'Sincronizando…'; await syncNow(); rerender(); };
   if (g('sbout')) g('sbout').onclick = async () => { await SB.auth.signOut(); SB_USER = null; rerender(); };
 }
 
