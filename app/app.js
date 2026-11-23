@@ -39,8 +39,8 @@ function imgTag(base, size, cls, alt, extra = '') {
 
 /* ---------- colección (localStorage) ---------- */
 function loadCol() {
-  try { const c = JSON.parse(localStorage.getItem(STORE_KEY)); if (c && c.cards) return Object.assign({ sealed: {}, alerts: {} }, c); } catch (e) {}
-  return { cards: {}, sealed: {}, alerts: {} };
+  try { const c = JSON.parse(localStorage.getItem(STORE_KEY)); if (c && c.cards) return Object.assign({ sealed: {}, alerts: {}, illustrators: {} }, c); } catch (e) {}
+  return { cards: {}, sealed: {}, alerts: {}, illustrators: {} };
 }
 let COL = loadCol();
 function saveCol() { localStorage.setItem(STORE_KEY, JSON.stringify(COL)); }
@@ -63,6 +63,7 @@ function openDb(bytes) {
   if (!ok.length) throw new Error('No parece la base de datos de 9Bolsillos');
   DB = db; PRICE_DATE = ok[0].values[0][0];
   HAS_HISTORY = db.exec("SELECT 1 FROM sqlite_master WHERE name='history'").length > 0;
+  if (!db.exec("SELECT 1 FROM pragma_table_info('cards') WHERE name='illustrator'").length) throw new Error('Base de datos antigua: carga la versión nueva (con ilustradores)');
 }
 
 /* ---------- precios ---------- */
@@ -124,7 +125,7 @@ function viewHome() {
   let total = 0, n = 0, intV = 0, jpV = 0, cost = 0, costVal = 0;
   const owned = [];
   const regions = {};
-  if (ids.length) q(`SELECT c.card_id, s.region FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => regions[r.card_id] = r.region);
+  if (ids.length) q(`SELECT c.card_id, CASE WHEN s.lang='es' THEN 'int' ELSE 'asia' END region FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => regions[r.card_id] = r.region);
   ids.forEach(id => {
     const e = COL.cards[id], v = ownedVariant(id, vmap[id]), p = vPrice(v), qty = e.qty || 1;
     if (p != null) { total += p * qty; regions[id] === 'asia' ? jpV += p * qty : intV += p * qty; }
@@ -160,7 +161,7 @@ function viewHome() {
     return Object.assign(o, { ch: base ? (o.p - base) / base * 100 : null });
   }).filter(o => o.ch != null && o.p >= 1).sort((a, b) => b.ch - a.ch).slice(0, 5);
   const names = {};
-  if (movers.length) q(`SELECT c.card_id, COALESCE(c.name_es,c.name_en,c.name_ja) name, c.local_id, c.image_base, COALESCE(s.name_es,s.name_en,s.name_ja) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${movers.map(() => '?').join(',')})`, movers.map(m => m.id)).forEach(r => names[r.card_id] = r);
+  if (movers.length) q(`SELECT c.card_id, COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local) name, c.local_id, c.image_base, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${movers.map(() => '?').join(',')})`, movers.map(m => m.id)).forEach(r => names[r.card_id] = r);
 
   const alertsHit = alertStatus().filter(a => a.hit).length;
   const periods = [[7, '1S'], [30, '1M'], [90, '3M'], [365, '1A'], [0, 'Todo']];
@@ -174,7 +175,7 @@ function viewHome() {
       <div class="pills">${periods.map(([d, l]) => `<button class="pill ${homePeriod === d ? 'on' : ''}" data-p="${d}">${l}</button>`).join('')}</div></div>
     ${total ? `<div class="card col" style="gap:10px"><b>Reparto</b>
       <div class="bar" style="display:flex;gap:2px;background:none">${[[intV, 'var(--up)'], [jpV, 'var(--down)'], [sealedV, 'var(--blue)']].filter(x => x[0] > 0).map(x => `<div style="width:${x[0] / total * 100}%;background:${x[1]};border-radius:3px"></div>`).join('')}</div>
-      <div class="row muted" style="gap:18px;flex-wrap:wrap"><span>Español/inglés <b style="color:var(--tx)">${eur(intV)}</b></span><span>Japonés <b style="color:var(--tx)">${eur(jpV)}</b></span><span>Sellado <b style="color:var(--tx)">${eur(sealedV)}</b></span></div></div>` : ''}
+      <div class="row muted" style="gap:18px;flex-wrap:wrap"><span>Español/inglés <b style="color:var(--tx)">${eur(intV)}</b></span><span>Japonés y otros <b style="color:var(--tx)">${eur(jpV)}</b></span><span>Sellado <b style="color:var(--tx)">${eur(sealedV)}</b></span></div></div>` : ''}
     ${movers.length ? `<div class="col"><h2>Mayores subidas <span class="muted">(vs media 30 días)</span></h2><div class="list">${movers.map(m => {
       const r = names[m.id] || {}; return `<a class="item" href="#/card/${encodeURIComponent(m.id)}">${img(r.image_base)}<div class="col" style="flex:1"><b>${esc(r.name)} · ${esc(r.local_id)}</b><span class="muted">${esc(r.set_name)}</span></div><div class="col" style="align-items:flex-end"><b>${eur(m.p)}</b><span class="${m.ch >= 0 ? 'up' : 'down'}" style="font-size:13px">${pct(m.ch)}</span></div></a>`;
     }).join('')}</div></div>` : ''}
@@ -183,85 +184,178 @@ function viewHome() {
   $view.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { homePeriod = +b.dataset.p; viewHome(); });
 }
 
-let setsFilter = 'int', setsQuery = '';
+const LANGS = { es: 'Español / inglés', ja: 'Japonés', ko: 'Coreano', 'zh-tw': 'Chino (trad.)', 'zh-cn': 'Chino (simpl.)', id: 'Indonesio', th: 'Tailandés' };
+const NAME = 'COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local)';
+
+let setsFilter = 'es', setsQuery = '';
 function viewSets() {
-  const rows = q(`SELECT s.set_id, s.region, COALESCE(s.name_es, s.name_en, s.name_ja) name, s.serie, s.release_date,
+  const rows = q(`SELECT s.set_id, s.lang, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) name, s.serie, s.release_date,
     (SELECT COUNT(*) FROM cards c WHERE c.set_id = s.set_id) n FROM sets s WHERE n > 0 ORDER BY s.release_date DESC, s.set_id`);
   const ownCount = {}; Object.values(COL.cards).forEach(e => ownCount[e.set] = (ownCount[e.set] || 0) + 1);
   const draw = () => {
     const ql = setsQuery.toLowerCase();
-    const list = rows.filter(r => (setsFilter === 'mine' ? ownCount[r.set_id] : r.region === setsFilter) && (!ql || (r.name || '').toLowerCase().includes(ql) || (r.serie || '').toLowerCase().includes(ql)));
+    const okLang = r => setsFilter === 'mine' ? ownCount[r.set_id] : setsFilter === 'otros' ? !['es', 'ja'].includes(r.lang) : r.lang === setsFilter;
+    const list = rows.filter(r => okLang(r) && (!ql || (r.name || '').toLowerCase().includes(ql) || (r.serie || '').toLowerCase().includes(ql)));
     document.getElementById('setlist').innerHTML = list.map(r => {
       const o = ownCount[r.set_id] || 0, p = Math.round(o / r.n * 100);
-      return `<a class="item" href="#/set/${encodeURIComponent(r.set_id)}"><div class="col" style="flex:1"><b>${esc(r.name)}</b><span class="muted">${esc(r.serie)} · ${r.release_date ? esc(r.release_date.slice(0, 4)) : ''} · ${r.n} cartas</span>
+      return `<a class="item" href="#/set/${encodeURIComponent(r.set_id)}"><div class="col" style="flex:1"><b>${esc(r.name)}</b><span class="muted">${esc(r.serie)} · ${r.release_date ? esc(r.release_date.slice(0, 4)) : ''} · ${r.n} cartas${setsFilter === 'otros' || setsFilter === 'mine' ? ' · ' + esc(LANGS[r.lang] || r.lang) : ''}</span>
         ${o ? `<div class="bar" style="margin-top:4px"><div style="width:${p}%"></div></div>` : ''}</div><span class="muted">${o ? `${o}/${r.n}` : ''}</span></a>`;
     }).join('') || '<p class="muted">No hay sets que coincidan.</p>';
   };
-  $view.innerHTML = `<div class="stack"><h1>Colección</h1>
+  $view.innerHTML = `<div class="stack"><div class="between"><h1>Colección</h1><a class="pill" style="display:flex;align-items:center" href="#/illustrators">Ilustradores →</a></div>
     <input type="search" id="sq" placeholder="Buscar set…" value="${esc(setsQuery)}">
-    <div class="pills">${[['int', 'Español / inglés'], ['asia', 'Japonés'], ['mine', 'Mis sets']].map(([k, l]) => `<button class="pill ${setsFilter === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('')}</div>
+    <div class="pills">${[['es', 'Español / inglés'], ['ja', 'Japonés'], ['otros', 'Otros idiomas'], ['mine', 'Mis sets']].map(([k, l]) => `<button class="pill ${setsFilter === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('')}</div>
     <div class="list" id="setlist"></div></div>`;
   document.getElementById('sq').oninput = e => { setsQuery = e.target.value; draw(); };
   $view.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { setsFilter = b.dataset.f; viewSets(); });
   draw();
 }
 
-let setFilter = 'all';
-function viewSet(setId) {
-  const s = q(`SELECT set_id, region, COALESCE(name_es,name_en,name_ja) name, name_en, serie, release_date, card_count, cm_expansion_id FROM sets WHERE set_id=?`, [setId])[0];
-  if (!s) { $view.innerHTML = '<p>Set no encontrado.</p>'; return; }
-  const cards = q(`SELECT card_id, local_id, COALESCE(name_es,name_en,name_ja) name, rarity, image_base FROM cards WHERE set_id=?
-    ORDER BY CAST(local_id AS INTEGER), local_id`, [setId]);
-  const vmap = variantsOf(cards.map(c => c.card_id));
-  const sealed = s.cm_expansion_id ? q(`SELECT p.cm_product_id, p.name, p.category, pr.trend, pr.avg30, pr.low FROM cm_products p LEFT JOIN prices pr USING(cm_product_id)
-    WHERE p.kind='sealed' AND p.cm_expansion_id=? ORDER BY pr.trend DESC`, [s.cm_expansion_id]) : [];
+/* ---------- navegador de cartas compartido: cuadrícula o álbum de 9 bolsillos ---------- */
+let browseFilter = 'all', browseMode = 'grid';
+const albumPage = {};
+function cardBrowser(key, cards, vmap, el, headEl, opts = {}) {
+  const perSpread = () => window.innerWidth >= 760 ? 2 : 1;
   const draw = () => {
     let have = 0, missCost = 0, val = 0;
     cards.forEach(c => { if (COL.cards[c.card_id]) { have++; val += (vPrice(ownedVariant(c.card_id, vmap[c.card_id])) || 0) * (COL.cards[c.card_id].qty || 1); } else missCost += cheapest(vmap[c.card_id]) || 0; });
     const p = cards.length ? have / cards.length * 100 : 0;
-    document.getElementById('sethead').innerHTML = `<div class="between"><b>Tienes ${have} de ${cards.length}</b><b class="up" style="font-size:22px">${Math.round(p)} %</b></div>
+    headEl.innerHTML = `<div class="between"><b>Tienes ${have} de ${cards.length}</b><b class="up" style="font-size:22px">${Math.round(p)} %</b></div>
       <div class="bar"><div style="width:${p}%"></div></div>
-      <div class="between muted"><span>Tu parte vale <b style="color:var(--tx)">${eur(val)}</b></span><span>Completarlo hoy: <b style="color:var(--tx)">${eur(missCost)}</b></span></div>`;
-    const list = cards.filter(c => setFilter === 'all' || (setFilter === 'have' ? COL.cards[c.card_id] : !COL.cards[c.card_id]));
-    document.getElementById('grid').innerHTML = list.map(c => {
+      <div class="between muted" style="flex-wrap:wrap"><span>Tu parte vale <b style="color:var(--tx)">${eur(val)}</b></span><span>Completarlo hoy: <b style="color:var(--tx)">${eur(missCost)}</b></span></div>`;
+    const tile = (c, pocket) => {
       const has = !!COL.cards[c.card_id], pr = has ? vPrice(ownedVariant(c.card_id, vmap[c.card_id])) : cheapest(vmap[c.card_id]);
-      return `<div class="tile ${has ? 'has' : 'miss'}" data-open="${esc(c.card_id)}">
+      return `<div class="tile ${has ? 'has' : 'miss'}" data-open="${esc(c.card_id)}" title="${pocket ? esc(pocket) : ''}">
         <div class="img">${esc(c.name)}${imgTag(c.image_base, 'low', '', '')}
           <button class="own" data-own="${esc(c.card_id)}" aria-label="${has ? 'Quitar de' : 'Añadir a'} mi colección: ${esc(c.name)}">${has ? '✓' : '＋'}</button></div>
-        <span class="num">${esc(c.local_id)}${s.card_count ? '/' + s.card_count : ''} · ${esc(c.rarity || '')}</span>
+        <span class="num">${esc(opts.sub ? opts.sub(c) : c.local_id)}</span>
         <span class="nm">${esc(c.name)}</span><span class="pr">${eur(pr)}</span></div>`;
-    }).join('') || '<p class="muted">Nada que mostrar con este filtro.</p>';
-    document.querySelectorAll('[data-own]').forEach(b => b.onclick = ev => {
+    };
+    if (browseMode === 'album') {
+      // El álbum siempre muestra todas las cartas en su bolsillo: las que faltan quedan en gris
+      const pages = Math.max(1, Math.ceil(cards.length / 9)), per = perSpread();
+      let pg = albumPage[key] || 0; pg = Math.min(pg - pg % per, (pages - 1) - (pages - 1) % per); albumPage[key] = pg;
+      let html = `<div class="between" style="margin-bottom:10px"><button class="pill" data-pg="-1" ${pg === 0 ? 'disabled' : ''} aria-label="Página anterior">←</button>
+        <b>Página ${pg + 1}${per === 2 && pg + 2 <= pages ? '–' + (pg + 2) : ''} de ${pages}</b>
+        <button class="pill" data-pg="1" ${pg + per >= pages ? 'disabled' : ''} aria-label="Página siguiente">→</button></div><div class="spread">`;
+      for (let k = pg; k < Math.min(pg + per, pages); k++) {
+        html += `<div class="page"><div class="pgnum">Página ${k + 1}</div><div class="pockets">`;
+        for (let i = 0; i < 9; i++) {
+          const c = cards[k * 9 + i];
+          html += c ? tile(c, `Página ${k + 1}, bolsillo ${i + 1}`) : '<div class="tile empty"><div class="img"></div></div>';
+        }
+        html += '</div></div>';
+      }
+      el.innerHTML = html + '</div>';
+      el.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => { albumPage[key] = Math.max(0, (albumPage[key] || 0) + (+b.dataset.pg) * per); draw(); });
+    } else {
+      const list = cards.filter(c => browseFilter === 'all' || (browseFilter === 'have' ? COL.cards[c.card_id] : !COL.cards[c.card_id]));
+      el.innerHTML = `<div class="grid">${list.map(c => tile(c)).join('')}</div>` + (list.length ? '' : '<p class="muted">Nada que mostrar con este filtro.</p>');
+    }
+    el.querySelectorAll('[data-own]').forEach(b => b.onclick = ev => {
       ev.stopPropagation(); const id = b.dataset.own;
       if (COL.cards[id]) delete COL.cards[id];
-      else { const v = (vmap[id] || []).slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0]; COL.cards[id] = { set: setId, cm: v ? v.cm_product_id : null, variant: v ? v.variant : null, qty: 1 }; }
+      else { const c = cards.find(x => x.card_id === id), v = (vmap[id] || []).slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0]; COL.cards[id] = { set: c.set_id, cm: v ? v.cm_product_id : null, variant: v ? v.variant : null, qty: 1 }; }
       saveCol(); draw();
     });
-    document.querySelectorAll('[data-open]').forEach(t => t.onclick = () => location.hash = '#/card/' + encodeURIComponent(t.dataset.open));
+    el.querySelectorAll('[data-open]').forEach(t => t.onclick = () => location.hash = '#/card/' + encodeURIComponent(t.dataset.open));
   };
+  return draw;
+}
+function browserControls(redraw) {
+  return `<div class="between" style="flex-wrap:wrap;gap:8px">
+    <div class="pills">${[['grid', 'Cuadrícula'], ['album', 'Álbum']].map(([k, l]) => `<button class="pill ${browseMode === k ? 'on' : ''}" data-bm="${k}">${l}</button>`).join('')}</div>
+    ${browseMode === 'grid' ? `<div class="pills">${[['all', 'Todas'], ['have', 'Tengo'], ['miss', 'Me faltan']].map(([k, l]) => `<button class="pill ${browseFilter === k ? 'on' : ''}" data-sf="${k}">${l}</button>`).join('')}</div>` : ''}</div>`;
+}
+function wireControls(rerender) {
+  $view.querySelectorAll('[data-bm]').forEach(b => b.onclick = () => { browseMode = b.dataset.bm; rerender(); });
+  $view.querySelectorAll('[data-sf]').forEach(b => b.onclick = () => { browseFilter = b.dataset.sf; rerender(); });
+}
+
+function viewSet(setId) {
+  const s = q(`SELECT set_id, lang, COALESCE(name_es,name_en,name_ja,name_local) name, serie, release_date, card_count, cm_expansion_id FROM sets WHERE set_id=?`, [setId])[0];
+  if (!s) { $view.innerHTML = '<p>Set no encontrado.</p>'; return; }
+  const cards = q(`SELECT c.card_id, c.set_id, c.local_id, ${NAME} name, c.rarity, c.image_base FROM cards c WHERE c.set_id=?
+    ORDER BY CAST(c.local_id AS INTEGER), c.local_id`, [setId]);
+  const vmap = variantsOf(cards.map(c => c.card_id));
+  const sealed = s.cm_expansion_id ? q(`SELECT p.cm_product_id, p.name, p.category, pr.trend, pr.avg30, pr.low FROM cm_products p LEFT JOIN prices pr USING(cm_product_id)
+    WHERE p.kind='sealed' AND p.cm_expansion_id=? ORDER BY pr.trend DESC`, [s.cm_expansion_id]) : [];
   $view.innerHTML = `<div class="stack">
-    <div class="row"><a href="#/sets" class="pill" style="display:flex;align-items:center">←</a><div class="col"><h1>${esc(s.name)}</h1><span class="muted">${esc(s.serie)} · ${esc(s.release_date || '')} · ${s.region === 'asia' ? 'Japonés' : 'Español / inglés'}</span></div></div>
+    <div class="row"><a href="#/sets" class="pill" style="display:flex;align-items:center">←</a><div class="col"><h1>${esc(s.name)}</h1><span class="muted">${esc(s.serie)} · ${esc(s.release_date || '')} · ${esc(LANGS[s.lang] || s.lang)}</span></div></div>
     <div class="card col" style="gap:8px" id="sethead"></div>
-    <div class="pills">${[['all', 'Todas'], ['have', 'Tengo'], ['miss', 'Me faltan']].map(([k, l]) => `<button class="pill ${setFilter === k ? 'on' : ''}" data-sf="${k}">${l}</button>`).join('')}</div>
-    <div class="grid" id="grid"></div>
+    ${browserControls()}
+    <div id="grid"></div>
     ${sealed.length ? `<div class="col"><h2>Producto sellado</h2><div class="list">${sealed.map(x => `<div class="item"><div class="col" style="flex:1"><b>${esc(x.name)}</b><span class="muted">${esc(x.category.replace('Pokémon ', ''))}</span></div>
       <b>${eur(x.trend ?? x.avg30 ?? x.low)}</b><button class="pill ${COL.sealed[x.cm_product_id] ? 'on' : ''}" data-sealed="${x.cm_product_id}">${COL.sealed[x.cm_product_id] ? '✓ Tengo ' + (COL.sealed[x.cm_product_id].qty || 1) : '＋'}</button></div>`).join('')}</div></div>` : ''}
-    <p class="muted">Precios: tendencia de Cardmarket (español e inglés juntos${s.region === 'asia' ? '; japonés aparte' : ''}).</p></div>`;
-  $view.querySelectorAll('[data-sf]').forEach(b => b.onclick = () => { setFilter = b.dataset.sf; viewSet(setId); });
+    <p class="muted">Precios: tendencia de Cardmarket${s.lang === 'es' ? ' (español e inglés juntos)' : ''}.</p></div>`;
+  wireControls(() => viewSet(setId));
   $view.querySelectorAll('[data-sealed]').forEach(b => b.onclick = () => {
     const id = b.dataset.sealed, cur = COL.sealed[id];
     if (!cur) COL.sealed[id] = { qty: 1, set: setId };
     else { const n = prompt('¿Cuántas unidades tienes? (0 para quitarlo)', cur.qty || 1); if (n === null) return; const k = parseInt(n, 10); if (!k) delete COL.sealed[id]; else cur.qty = k; }
     saveCol(); viewSet(setId);
   });
+  cardBrowser('set:' + setId, cards, vmap, document.getElementById('grid'), document.getElementById('sethead'),
+    { sub: c => `${c.local_id}${s.card_count ? '/' + s.card_count : ''} · ${c.rarity || ''}` })();
+}
+
+/* ---------- ilustradores ---------- */
+let illLang = 'ja', illQuery = '';
+const langCond = l => l === 'all' ? '1=1' : l === 'es' ? "s.lang='es'" : "s.lang='ja'";
+function viewIllustrators() {
+  const rows = q(`SELECT c.illustrator name, COUNT(*) n FROM cards c JOIN sets s USING(set_id)
+    WHERE c.illustrator IS NOT NULL AND ${langCond(illLang)} GROUP BY c.illustrator COLLATE NOCASE ORDER BY n DESC`);
+  const favs = Object.keys(COL.illustrators);
+  const ownBy = {};
+  if (favs.length) {
+    const ids = Object.keys(COL.cards);
+    if (ids.length) q(`SELECT c.illustrator FROM cards c JOIN sets s USING(set_id) WHERE ${langCond(illLang)} AND c.card_id IN (${ids.map(() => '?').join(',')})`, ids)
+      .forEach(r => { const k = (r.illustrator || '').toLowerCase(); ownBy[k] = (ownBy[k] || 0) + 1; });
+  }
+  const total = {}; rows.forEach(r => total[r.name.toLowerCase()] = r.n);
+  const item = (name, n) => { const o = ownBy[name.toLowerCase()] || 0; return `<a class="item" href="#/illustrator/${encodeURIComponent(name)}"><div class="col" style="flex:1"><b>${esc(name)} ${COL.illustrators[name] ? '<span class="up">★</span>' : ''}</b><span class="muted">${n} cartas</span>
+    ${o ? `<div class="bar" style="margin-top:4px"><div style="width:${o / n * 100}%"></div></div>` : ''}</div><span class="muted">${o ? o + '/' + n : ''}</span></a>`; };
+  const draw = () => {
+    const ql = illQuery.toLowerCase();
+    document.getElementById('ills').innerHTML = rows.filter(r => !ql || r.name.toLowerCase().includes(ql)).slice(0, 300).map(r => item(r.name, r.n)).join('') || '<p class="muted">Sin resultados.</p>';
+  };
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/sets" class="pill" style="display:flex;align-items:center">←</a><h1>Ilustradores</h1></div>
+    ${favs.length ? `<div class="col"><h2>Mis colecciones</h2><div class="list">${favs.map(f => item(f, total[f.toLowerCase()] || 0)).join('')}</div></div>` : '<div class="card muted">Entra en un ilustrador y pulsa "Seguir" para tenerlo aquí como colección.</div>'}
+    <div class="pills">${[['ja', 'Japonés'], ['es', 'Español / inglés'], ['all', 'Todos los idiomas']].map(([k, l]) => `<button class="pill ${illLang === k ? 'on' : ''}" data-il="${k}">${l}</button>`).join('')}</div>
+    <input type="search" id="iq" placeholder="Buscar ilustrador…" value="${esc(illQuery)}">
+    <div class="list" id="ills"></div></div>`;
+  $view.querySelectorAll('[data-il]').forEach(b => b.onclick = () => { illLang = b.dataset.il; viewIllustrators(); });
+  document.getElementById('iq').oninput = e => { illQuery = e.target.value; draw(); };
   draw();
+}
+function viewIllustrator(name) {
+  const cards = q(`SELECT c.card_id, c.set_id, c.local_id, ${NAME} name, c.rarity, c.image_base, s.lang, s.release_date,
+    COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id)
+    WHERE c.illustrator = ? COLLATE NOCASE AND ${langCond(illLang)} ORDER BY s.release_date, s.set_id, CAST(c.local_id AS INTEGER)`, [name]);
+  const vmap = variantsOf(cards.map(c => c.card_id));
+  const fav = !!COL.illustrators[name];
+  $view.innerHTML = `<div class="stack">
+    <div class="row"><a href="#/illustrators" class="pill" style="display:flex;align-items:center">←</a><div class="col" style="flex:1"><h1>${esc(name)}</h1><span class="muted">Ilustrador · ${cards.length} cartas</span></div>
+      <button class="pill ${fav ? 'on' : ''}" id="fav">${fav ? '★ Siguiendo' : '☆ Seguir'}</button></div>
+    <div class="pills">${[['ja', 'Japonés'], ['es', 'Español / inglés'], ['all', 'Todos los idiomas']].map(([k, l]) => `<button class="pill ${illLang === k ? 'on' : ''}" data-il="${k}">${l}</button>`).join('')}</div>
+    <div class="card col" style="gap:8px" id="ihead"></div>
+    ${browserControls()}
+    <div id="grid"></div>
+    <p class="muted">Ordenadas por fecha de salida del set. Precios: tendencia de Cardmarket.</p></div>`;
+  document.getElementById('fav').onclick = () => { if (fav) delete COL.illustrators[name]; else COL.illustrators[name] = { since: PRICE_DATE }; saveCol(); viewIllustrator(name); };
+  $view.querySelectorAll('[data-il]').forEach(b => b.onclick = () => { illLang = b.dataset.il; viewIllustrator(name); });
+  wireControls(() => viewIllustrator(name));
+  cardBrowser('ill:' + name + ':' + illLang, cards, vmap, document.getElementById('grid'), document.getElementById('ihead'),
+    { sub: c => `${c.set_name} · ${c.local_id}${illLang === 'all' ? ' · ' + (c.lang === 'ja' ? 'JP' : c.lang.toUpperCase()) : ''}` })();
 }
 
 function viewCard(cardId) {
-  const c = q(`SELECT c.*, COALESCE(c.name_es,c.name_en,c.name_ja) name, s.region, s.card_count, COALESCE(s.name_es,s.name_en,s.name_ja) set_name FROM cards c JOIN sets s USING(set_id) WHERE card_id=?`, [cardId])[0];
+  const c = q(`SELECT c.*, COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local) name, s.region, s.card_count, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE card_id=?`, [cardId])[0];
   if (!c) { $view.innerHTML = '<p>Carta no encontrada.</p>'; return; }
   const vs = variantsOf([cardId])[cardId] || [];
   const e = COL.cards[cardId];
+  const order = q(`SELECT card_id FROM cards WHERE set_id=? ORDER BY CAST(local_id AS INTEGER), local_id`, [c.set_id]).map(r => r.card_id);
+  const idx = order.indexOf(cardId), albumPos = idx >= 0 ? `Álbum del set: página ${Math.floor(idx / 9) + 1}, bolsillo ${idx % 9 + 1}` : '';
   let sel = ownedVariant(cardId, vs) || vs.slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0] || null;
   const draw = () => {
     const h = sel ? historyFor([sel.cm_product_id]).map(r => [r.day, (sel.variant === 'reverse' ? r.trend_holo_c : r.trend_c)]).filter(r => r[1] != null).map(r => [r[0], r[1] / 100]) : [];
@@ -273,7 +367,7 @@ function viewCard(cardId) {
       <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
         ${imgTag(c.image_base, 'high', 'hero', c.name)}
         <div class="col" style="gap:8px;flex:1;min-width:200px">
-          <h1>${esc(c.name)}</h1>${c.name_en && c.name_en !== c.name ? `<span class="muted">${esc(c.name_en)}</span>` : ''}${c.name_ja && c.name_ja !== c.name ? `<span class="muted">${esc(c.name_ja)}</span>` : ''}
+          <h1>${esc(c.name)}</h1>${c.illustrator ? `<a href="#/illustrator/${encodeURIComponent(c.illustrator)}" style="font-size:14px">Ilustración: ${esc(c.illustrator)} →</a>` : ''}${albumPos ? `<span class="muted">${albumPos}</span>` : ''}${c.name_en && c.name_en !== c.name ? `<span class="muted">${esc(c.name_en)}</span>` : ''}${c.name_ja && c.name_ja !== c.name ? `<span class="muted">${esc(c.name_ja)}</span>` : ''}
           <div class="big">${eur(p)}</div><span class="muted">Tendencia en Cardmarket${hol ? ' (reverse holo)' : ''}</span>
           ${sel && sel.ambiguous ? '<span class="down" style="font-size:13px">Ojo: este precio podría corresponder a otra versión de la carta.</span>' : ''}
           ${vs.length > 1 ? `<label class="f">Versión<select id="vsel">${vs.map((v, i) => `<option value="${i}" ${v === sel ? 'selected' : ''}>${esc(vLabel(v))} — ${eur(vPrice(v))}</option>`).join('')}</select></label>` : `<span class="muted">${sel ? esc(vLabel(sel)) : 'Sin precio en Cardmarket'}</span>`}
@@ -309,7 +403,7 @@ function alertStatus() {
   if (!list.length || !DB) return [];
   const ids = [...new Set(list.map(a => a.cm))];
   const pr = {}; q(`SELECT * FROM prices WHERE cm_product_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => pr[r.cm_product_id] = r);
-  const info = {}; q(`SELECT c.card_id, COALESCE(c.name_es,c.name_en,c.name_ja) name, c.local_id, c.image_base, COALESCE(s.name_es,s.name_en,s.name_ja) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${list.map(() => '?').join(',')})`, list.map(a => a.card)).forEach(r => info[r.card_id] = r);
+  const info = {}; q(`SELECT c.card_id, COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local) name, c.local_id, c.image_base, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${list.map(() => '?').join(',')})`, list.map(a => a.card)).forEach(r => info[r.card_id] = r);
   return list.map(a => {
     const r = pr[a.cm] || {}, now = vPrice(Object.assign({ variant: a.variant }, r));
     const low = a.variant === 'reverse' ? r.low_holo : r.low;
@@ -335,7 +429,7 @@ function viewSearch() {
     searchQ = inp.value.trim();
     if (searchQ.length < 2) { document.getElementById('res').innerHTML = '<p class="muted">Escribe al menos 2 letras.</p>'; return; }
     const like = '%' + searchQ + '%';
-    const rows = q(`SELECT c.card_id, COALESCE(c.name_es,c.name_en,c.name_ja) name, c.local_id, c.rarity, c.image_base, s.region, s.release_date, COALESCE(s.name_es,s.name_en,s.name_ja) set_name
+    const rows = q(`SELECT c.card_id, COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local) name, c.local_id, c.rarity, c.image_base, s.region, s.release_date, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name
       FROM cards c JOIN sets s USING(set_id) WHERE c.name_es LIKE ? OR c.name_en LIKE ? OR c.name_ja LIKE ? ORDER BY s.release_date DESC LIMIT 80`, [like, like, like]);
     const vm = variantsOf(rows.map(r => r.card_id));
     document.getElementById('res').innerHTML = rows.map(r => `<a class="item" href="#/card/${encodeURIComponent(r.card_id)}">${img(r.image_base)}<div class="col" style="flex:1"><b>${esc(r.name)} ${COL.cards[r.card_id] ? '<span class="up">✓</span>' : ''}</b><span class="muted">${esc(r.set_name)} · ${esc(r.local_id)} · ${esc(r.rarity || '')}${r.region === 'asia' ? ' · JP' : ''}</span></div><b>${eur(cheapest(vm[r.card_id]))}</b></a>`).join('') || '<p class="muted">Sin resultados.</p>';
@@ -357,7 +451,7 @@ function viewSettings() {
   </div>`;
   document.getElementById('dbf').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const b = await f.arrayBuffer(); openDb(b); await idbPut('db', b); await idbPut('db_date', PRICE_DATE); toast('Base de datos actualizada'); viewSettings(); } catch (e) { alert('No se pudo cargar: ' + e.message); } };
   document.getElementById('exp').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(COL, null, 1)], { type: 'application/json' })); a.download = `9bolsillos-coleccion-${new Date().toISOString().slice(0, 10)}.json`; a.click(); };
-  document.getElementById('imp').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const c = JSON.parse(await f.text()); if (!c.cards) throw new Error('formato'); if (!confirm('Esto sustituye tu colección actual por la de la copia. ¿Seguir?')) return; COL = Object.assign({ sealed: {}, alerts: {} }, c); saveCol(); toast('Colección importada'); viewSettings(); } catch (e) { alert('Archivo no válido'); } };
+  document.getElementById('imp').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const c = JSON.parse(await f.text()); if (!c.cards) throw new Error('formato'); if (!confirm('Esto sustituye tu colección actual por la de la copia. ¿Seguir?')) return; COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {} }, c); saveCol(); toast('Colección importada'); viewSettings(); } catch (e) { alert('Archivo no válido'); } };
 }
 
 function viewWelcome(msg) {
@@ -380,13 +474,15 @@ function route() {
   if (!DB) return;
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   const [, a, b] = h.split('/');
-  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', search: 'search', alerts: 'alerts', settings: 'home' }[a || ''] || 'home';
+  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', illustrators: 'sets', illustrator: 'sets', search: 'search', alerts: 'alerts', settings: 'home' }[a || ''] || 'home';
   $tabs.querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
   window.scrollTo(0, 0);
   try {
     if (!a) viewHome();
     else if (a === 'sets') viewSets();
     else if (a === 'set') viewSet(b);
+    else if (a === 'illustrators') viewIllustrators();
+    else if (a === 'illustrator') viewIllustrator(b);
     else if (a === 'card') viewCard(b);
     else if (a === 'search') viewSearch();
     else if (a === 'alerts') viewAlerts();
@@ -402,10 +498,11 @@ const ONLINE = location.protocol.startsWith('http');
 async function autoUpdate() {
   const v = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
   if (!v || !v.prices_date) return false;
-  const have = await idbGet('db_date');
-  if (have && have >= v.prices_date && await idbGet('db')) return false;
+  const want = v.prices_date + '|' + (v.built_at || '');
+  const have = await idbGet('db_ver');
+  if (have === want && await idbGet('db')) return false;
   $view.innerHTML = `<div class="center"><h1>9Bolsillos</h1><p>Descargando precios del ${esc(v.prices_date.split('-').reverse().join('/'))}…</p><p class="muted" id="prog"></p></div>`;
-  const r = await fetch('9bolsillos.db?v=' + encodeURIComponent(v.prices_date), { cache: 'no-store' });
+  const r = await fetch('9bolsillos.db?v=' + encodeURIComponent(want), { cache: 'no-store' });
   if (!r.ok) throw new Error('No se pudo descargar la base de datos (' + r.status + ')');
   const total = +r.headers.get('content-length') || 0, reader = r.body.getReader(), parts = []; let got = 0;
   for (;;) {
@@ -415,7 +512,7 @@ async function autoUpdate() {
   }
   const bytes = new Uint8Array(got); let off = 0; parts.forEach(p => { bytes.set(p, off); off += p.length; });
   openDb(bytes.buffer);
-  await idbPut('db', bytes.buffer); await idbPut('db_date', v.prices_date);
+  await idbPut('db', bytes.buffer); await idbPut('db_ver', want);
   return true;
 }
 
