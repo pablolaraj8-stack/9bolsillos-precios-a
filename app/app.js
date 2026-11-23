@@ -21,7 +21,25 @@ function toast(msg) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
   document.body.appendChild(t); setTimeout(() => t.remove(), 2200);
 }
-function img(base, cls = 'thumb', alt = '') { return imgTag(base, 'low', cls, alt); }
+function img(base, cls = 'thumb', alt = '', cardId = null) { return cardId && CUSTOM_IMG[cardId] ? `<img class="${cls}" alt="${esc(alt)}" src="${CUSTOM_IMG[cardId]}">` : imgTag(base, 'low', cls, alt); }
+// Imágenes propias (fotos que sube el usuario), guardadas en el navegador
+const CUSTOM_IMG = {};
+function cardImg(c, size, cls, alt) { return CUSTOM_IMG[c.card_id] ? `<img ${cls ? `class="${cls}"` : ''} alt="${esc(alt || '')}" src="${CUSTOM_IMG[c.card_id]}">` : imgTag(c.image_base, size, cls, alt || ''); }
+async function loadCustomImgs() {
+  const d = await idb();
+  await new Promise(r => { const req = d.transaction('files').objectStore('files').openCursor(); req.onsuccess = () => { const cur = req.result; if (!cur) return r(); if (String(cur.key).startsWith('img:')) CUSTOM_IMG[String(cur.key).slice(4)] = cur.value; cur.continue(); }; req.onerror = () => r(); });
+}
+function resizeImage(file) {
+  return new Promise((res, rej) => {
+    const im = new Image(); im.onload = () => {
+      const k = Math.min(1, 600 / im.height), cv = document.createElement('canvas');
+      cv.width = Math.round(im.width * k); cv.height = Math.round(im.height * k);
+      cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
+      let u = cv.toDataURL('image/webp', 0.82); if (!u.startsWith('data:image/webp')) u = cv.toDataURL('image/jpeg', 0.85);
+      URL.revokeObjectURL(im.src); res(u);
+    }; im.onerror = () => rej(new Error('No se pudo leer la imagen')); im.src = URL.createObjectURL(file);
+  });
+}
 
 
 // Imagen en español si existe; si no, en inglés; si tampoco, se oculta y queda el nombre
@@ -177,7 +195,7 @@ function viewHome() {
       <div class="bar" style="display:flex;gap:2px;background:none">${[[intV, 'var(--up)'], [jpV, 'var(--down)'], [sealedV, 'var(--blue)']].filter(x => x[0] > 0).map(x => `<div style="width:${x[0] / total * 100}%;background:${x[1]};border-radius:3px"></div>`).join('')}</div>
       <div class="row muted" style="gap:18px;flex-wrap:wrap"><span>Español/inglés <b style="color:var(--tx)">${eur(intV)}</b></span><span>Japonés y otros <b style="color:var(--tx)">${eur(jpV)}</b></span><span>Sellado <b style="color:var(--tx)">${eur(sealedV)}</b></span></div></div>` : ''}
     ${movers.length ? `<div class="col"><h2>Mayores subidas <span class="muted">(vs media 30 días)</span></h2><div class="list">${movers.map(m => {
-      const r = names[m.id] || {}; return `<a class="item" href="#/card/${encodeURIComponent(m.id)}">${img(r.image_base)}<div class="col" style="flex:1"><b>${esc(r.name)} · ${esc(r.local_id)}</b><span class="muted">${esc(r.set_name)}</span></div><div class="col" style="align-items:flex-end"><b>${eur(m.p)}</b><span class="${m.ch >= 0 ? 'up' : 'down'}" style="font-size:13px">${pct(m.ch)}</span></div></a>`;
+      const r = names[m.id] || {}; return `<a class="item" href="#/card/${encodeURIComponent(m.id)}">${img(r.image_base, 'thumb', '', m.id)}<div class="col" style="flex:1"><b>${esc(r.name)} · ${esc(r.local_id)}</b><span class="muted">${esc(r.set_name)}</span></div><div class="col" style="align-items:flex-end"><b>${eur(m.p)}</b><span class="${m.ch >= 0 ? 'up' : 'down'}" style="font-size:13px">${pct(m.ch)}</span></div></a>`;
     }).join('')}</div></div>` : ''}
     ${!ids.length && !sealedIds.length ? `<div class="card col" style="gap:10px"><b>Empieza tu colección</b><span class="muted">Entra en Colección, abre un set y toca el botón ＋ de cada carta que tengas.</span><a class="btn" style="display:flex;align-items:center;justify-content:center" href="#/sets">Ver sets</a></div>` : ''}
   </div>`;
@@ -213,8 +231,16 @@ function viewSets() {
 
 /* ---------- navegador de cartas compartido: cuadrícula o álbum de 9 bolsillos ---------- */
 let browseFilter = 'all', browseMode = 'grid';
+const SORT = { set: 'num', ill: 'old' };
+const SORTS = { set: [['num', 'Número'], ['price_desc', 'Precio: mayor primero'], ['price_asc', 'Precio: menor primero'], ['name', 'Nombre']],
+  ill: [['old', 'Lanzamiento: antiguas primero'], ['new', 'Lanzamiento: recientes primero'], ['price_desc', 'Precio: mayor primero'], ['price_asc', 'Precio: menor primero'], ['name', 'Nombre']] };
 const albumPage = {};
-function cardBrowser(key, cards, vmap, el, headEl, opts = {}) {
+function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
+  const kind = opts.kind || 'set', mode = SORT[kind];
+  const pr = c => { const p = COL.cards[c.card_id] ? vPrice(ownedVariant(c.card_id, vmap[c.card_id])) : cheapest(vmap[c.card_id]); return p ?? -1; };
+  const num = c => [parseInt(c.local_id, 10) || 0, c.local_id || ''];
+  const byRel = (a, b) => (a.release_date || '').localeCompare(b.release_date || '') || (a.set_id || '').localeCompare(b.set_id || '') || num(a)[0] - num(b)[0];
+  const cards = cards0.slice().sort(mode === 'new' ? (a, b) => byRel(b, a) : mode === 'old' ? byRel : mode === 'price_desc' ? (a, b) => pr(b) - pr(a) : mode === 'price_asc' ? (a, b) => (pr(a) < 0) - (pr(b) < 0) || pr(a) - pr(b) : mode === 'name' ? (a, b) => (a.name || '').localeCompare(b.name || '', 'es') : (a, b) => num(a)[0] - num(b)[0] || num(a)[1].localeCompare(num(b)[1]));
   const perSpread = () => window.innerWidth >= 760 ? 2 : 1;
   const draw = () => {
     let have = 0, missCost = 0, val = 0;
@@ -226,7 +252,7 @@ function cardBrowser(key, cards, vmap, el, headEl, opts = {}) {
     const tile = (c, pocket) => {
       const has = !!COL.cards[c.card_id], pr = has ? vPrice(ownedVariant(c.card_id, vmap[c.card_id])) : cheapest(vmap[c.card_id]);
       return `<div class="tile ${has ? 'has' : 'miss'}" data-open="${esc(c.card_id)}" title="${pocket ? esc(pocket) : ''}">
-        <div class="img"><span class="fbn" ${c.image_base ? 'style="display:none"' : ''}>${esc(c.name)}</span>${imgTag(c.image_base, 'low', '', '')}
+        <div class="img"><span class="fbn" ${c.image_base || CUSTOM_IMG[c.card_id] ? 'style="display:none"' : ''}>${esc(c.name)}</span>${cardImg(c, 'low', '', '')}
           <button class="own" data-own="${esc(c.card_id)}" aria-label="${has ? 'Quitar de' : 'Añadir a'} mi colección: ${esc(c.name)}">${has ? '✓' : '＋'}</button></div>
         <span class="num">${esc(opts.sub ? opts.sub(c) : c.local_id)}</span>
         <span class="nm">${esc(c.name)}</span><span class="pr">${eur(pr)}</span></div>`;
@@ -262,14 +288,16 @@ function cardBrowser(key, cards, vmap, el, headEl, opts = {}) {
   };
   return draw;
 }
-function browserControls(redraw) {
+function browserControls(kind = 'set') {
   return `<div class="between" style="flex-wrap:wrap;gap:8px">
+    <label class="row muted" style="gap:8px;font-size:13px">Ordenar<select data-sort="${kind}">${SORTS[kind].map(([k, l]) => `<option value="${k}" ${SORT[kind] === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     <div class="pills">${[['grid', 'Cuadrícula'], ['album', 'Álbum']].map(([k, l]) => `<button class="pill ${browseMode === k ? 'on' : ''}" data-bm="${k}">${l}</button>`).join('')}</div>
     ${browseMode === 'grid' ? `<div class="pills">${[['all', 'Todas'], ['have', 'Tengo'], ['miss', 'Me faltan']].map(([k, l]) => `<button class="pill ${browseFilter === k ? 'on' : ''}" data-sf="${k}">${l}</button>`).join('')}</div>` : ''}</div>`;
 }
 function wireControls(rerender) {
   $view.querySelectorAll('[data-bm]').forEach(b => b.onclick = () => { browseMode = b.dataset.bm; rerender(); });
   $view.querySelectorAll('[data-sf]').forEach(b => b.onclick = () => { browseFilter = b.dataset.sf; rerender(); });
+  $view.querySelectorAll('[data-sort]').forEach(s => s.onchange = () => { SORT[s.dataset.sort] = s.value; rerender(); });
 }
 
 function viewSet(setId) {
@@ -296,7 +324,7 @@ function viewSet(setId) {
     saveCol(); viewSet(setId);
   });
   cardBrowser('set:' + setId, cards, vmap, document.getElementById('grid'), document.getElementById('sethead'),
-    { sub: c => `${c.local_id}${s.card_count ? '/' + s.card_count : ''} · ${c.rarity || ''}` })();
+    { kind: 'set', sub: c => `${c.local_id}${s.card_count ? '/' + s.card_count : ''} · ${c.rarity || ''}` })();
 }
 
 /* ---------- ilustradores ---------- */
@@ -339,14 +367,14 @@ function viewIllustrator(name) {
       <button class="pill ${fav ? 'on' : ''}" id="fav">${fav ? '★ Siguiendo' : '☆ Seguir'}</button></div>
     <div class="pills">${[['ja', 'Japonés'], ['es', 'Español / inglés'], ['all', 'Todos los idiomas']].map(([k, l]) => `<button class="pill ${illLang === k ? 'on' : ''}" data-il="${k}">${l}</button>`).join('')}</div>
     <div class="card col" style="gap:8px" id="ihead"></div>
-    ${browserControls()}
+    ${browserControls('ill')}
     <div id="grid"></div>
     <p class="muted">Ordenadas por fecha de salida del set. Precios: tendencia de Cardmarket.${illLang === 'ja' ? ' En japonés la lista está incompleta: a la base de datos le faltan muchos sets antiguos (DP, BW, XY…) y el ilustrador de algunas cartas.' : ''}</p></div>`;
   document.getElementById('fav').onclick = () => { if (fav) delete COL.illustrators[name]; else COL.illustrators[name] = { since: PRICE_DATE }; saveCol(); viewIllustrator(name); };
   $view.querySelectorAll('[data-il]').forEach(b => b.onclick = () => { illLang = b.dataset.il; viewIllustrator(name); });
   wireControls(() => viewIllustrator(name));
   cardBrowser('ill:' + name + ':' + illLang, cards, vmap, document.getElementById('grid'), document.getElementById('ihead'),
-    { sub: c => `${c.set_name} · ${c.local_id}${illLang === 'all' ? ' · ' + (c.lang === 'ja' ? 'JP' : c.lang.toUpperCase()) : ''}` })();
+    { kind: 'ill', sub: c => `${c.set_name} · ${c.local_id}${illLang === 'all' ? ' · ' + (c.lang === 'ja' ? 'JP' : c.lang.toUpperCase()) : ''}` })();
 }
 
 function viewCard(cardId) {
@@ -366,7 +394,9 @@ function viewCard(cardId) {
     $view.innerHTML = `<div class="stack">
       <div class="row"><a href="#/set/${encodeURIComponent(c.set_id)}" class="pill" style="display:flex;align-items:center">←</a><span class="muted">${esc(c.set_name)} · ${esc(c.local_id)}${c.card_count ? '/' + c.card_count : ''} · ${esc(c.rarity || '')}</span></div>
       <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
-        ${imgTag(c.image_base, 'high', 'hero', c.name)}
+        <div class="col" style="gap:8px;align-items:flex-start">${cardImg(c, 'high', 'hero', c.name)}
+          <div class="row" style="flex-wrap:wrap;gap:6px;max-width:180px"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG[cardId] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="cimg" accept="image/*" hidden></label>
+          <button class="pill" id="curl" style="font-size:13px">Enlace</button>${CUSTOM_IMG[cardId] ? '<button class="pill" id="cdel" style="font-size:13px">Quitar</button>' : ''}</div></div>
         <div class="col" style="gap:8px;flex:1;min-width:200px">
           <h1>${esc(c.name)}</h1>${c.illustrator ? `<a href="#/illustrator/${encodeURIComponent(c.illustrator)}" style="font-size:14px">Ilustración: ${esc(c.illustrator)} →</a>` : ''}${albumPos ? `<span class="muted">${albumPos}</span>` : ''}${c.name_en && c.name_en !== c.name ? `<span class="muted">${esc(c.name_en)}</span>` : ''}${c.name_ja && c.name_ja !== c.name ? `<span class="muted">${esc(c.name_ja)}</span>` : ''}
           <div class="big">${eur(p)}</div><span class="muted">Tendencia en Cardmarket${hol ? ' (reverse holo)' : ''}</span>
@@ -391,6 +421,9 @@ function viewCard(cardId) {
         ${sl ? `<span class="muted">Pides ${eur(sl.price)} · ${esc(sl.cond)} · ${esc(sl.lang)} · ${sl.qty} ud.</span><div class="row"><a class="btn sec" style="display:flex;align-items:center" href="#/sell">Ver lista de venta</a><button class="btn warn" id="unsell">Quitar de venta</button></div>`
         : `<span class="muted">Precio sugerido: ${eur(p)} (tendencia) · mínimo actual ${eur(hol ? sel && sel.low_holo : sel && sel.low)}</span><button class="btn sec" id="sell">Poner a la venta</button>`}</div>` : ''}
     </div>`;
+    const ci = document.getElementById('cimg'); if (ci) ci.onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const u = await resizeImage(f); CUSTOM_IMG[cardId] = u; await idbPut('img:' + cardId, u); toast('Imagen guardada'); draw(); } catch (e) { alert(e.message); } };
+    const cu = document.getElementById('curl'); if (cu) cu.onclick = async () => { const u = prompt('Pega el enlace de una imagen de la carta (https://…)'); if (!u || !/^https:\/\//.test(u.trim())) return; CUSTOM_IMG[cardId] = u.trim(); await idbPut('img:' + cardId, u.trim()); draw(); };
+    const cd = document.getElementById('cdel'); if (cd) cd.onclick = async () => { delete CUSTOM_IMG[cardId]; await idbDel('img:' + cardId); draw(); };
     const vsel = document.getElementById('vsel'); if (vsel) vsel.onchange = () => { sel = vs[+vsel.value]; if (COL.cards[cardId]) { COL.cards[cardId].cm = sel.cm_product_id; COL.cards[cardId].variant = sel.variant; saveCol(); } draw(); };
     const add = document.getElementById('add'); if (add) add.onclick = () => { COL.cards[cardId] = { set: c.set_id, cm: sel ? sel.cm_product_id : null, variant: sel ? sel.variant : null, qty: 1 }; saveCol(); viewCard(cardId); };
     const save = document.getElementById('save'); if (save) save.onclick = () => { const b = document.getElementById('buy').value; Object.assign(COL.cards[cardId], { qty: Math.max(1, parseInt(document.getElementById('qty').value, 10) || 1), buy: b === '' ? null : parseFloat(b) }); saveCol(); toast('Guardado'); viewCard(cardId); };
@@ -429,7 +462,7 @@ function viewWishlist() {
       <div class="list">${list.map(a => {
         const near = a.ratio == null ? 'Sin precio objetivo' : a.hit ? '¡Ya está en tu objetivo!' : `A un ${Math.round((a.ratio - 1) * 100)} % de tu objetivo`;
         return `<div class="item" style="${a.hit ? 'background:#12271D;border-radius:10px;padding:10px' : ''}">
-        <a href="#/card/${encodeURIComponent(a.card)}" style="display:flex;gap:12px;align-items:center;flex:1;color:var(--tx)">${img(a.info.image_base)}<div class="col" style="flex:1"><b>${esc(a.info.name)} · ${esc(a.info.local_id)}</b><span class="muted">${esc(a.info.set_name)} · ${esc(vLabel({ variant: a.variant }))}</span>
+        <a href="#/card/${encodeURIComponent(a.card)}" style="display:flex;gap:12px;align-items:center;flex:1;color:var(--tx)">${img(a.info.image_base, 'thumb', '', a.card)}<div class="col" style="flex:1"><b>${esc(a.info.name)} · ${esc(a.info.local_id)}</b><span class="muted">${esc(a.info.set_name)} · ${esc(vLabel({ variant: a.variant }))}</span>
         <span style="font-size:13px" class="${a.hit ? 'up' : ''}">${near}${a.target ? ` · objetivo ${eur(a.target)}` : ''}${!a.hit && a.lowHit ? ` · <span class="up">hay ofertas desde ${eur(a.low)}</span>` : ''}</span></div>
         <b>${eur(a.now)}</b></a><button class="pill" data-bought="${esc(a.key)}" title="La he comprado">✓</button></div>`;
       }).join('')}</div>`
@@ -623,7 +656,7 @@ function viewSell() {
   $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center">←</a><h1>Lista de venta</h1></div>
     <div class="card col" style="gap:6px"><span class="muted">${rows.length} carta${rows.length === 1 ? '' : 's'} a la venta · lo que pides</span><div class="big">${eur(total)}</div><span class="muted">Según la tendencia de Cardmarket valdrían ${eur(sugT)}</span>
       <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="xcsv">Exportar CSV</button></div></div>
-    <div class="list">${rows.map(r => `<div class="item" style="flex-wrap:wrap;align-items:flex-start">${img(r.i.image_base)}<div class="col" style="flex:1;min-width:180px"><a href="#/card/${encodeURIComponent(r.id)}" style="color:var(--tx)"><b>${esc(r.i.name)} · ${esc(r.i.local_id)}</b></a><span class="muted">${esc(r.i.set_name)}${r.v ? ' · ' + esc(vLabel(r.v)) : ''}</span>
+    <div class="list">${rows.map(r => `<div class="item" style="flex-wrap:wrap;align-items:flex-start">${img(r.i.image_base, 'thumb', '', r.id)}<div class="col" style="flex:1;min-width:180px"><a href="#/card/${encodeURIComponent(r.id)}" style="color:var(--tx)"><b>${esc(r.i.name)} · ${esc(r.i.local_id)}</b></a><span class="muted">${esc(r.i.set_name)}${r.v ? ' · ' + esc(vLabel(r.v)) : ''}</span>
         <span style="font-size:13px">Sugerido ${eur(r.sug)} · mínimo publicado ${eur(r.low)}</span>
         <div class="row" style="flex-wrap:wrap;margin-top:6px">
           <label class="f">Tu precio €<input type="number" step="0.01" min="0" value="${r.e.price ?? ''}" data-sp="${esc(r.id)}" style="width:100px"></label>
@@ -671,7 +704,7 @@ function viewSearch() {
     const rows = q(`SELECT c.card_id, COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local) name, c.local_id, c.rarity, c.image_base, s.region, s.release_date, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name
       FROM cards c JOIN sets s USING(set_id) WHERE c.name_es LIKE ? OR c.name_en LIKE ? OR c.name_ja LIKE ? ORDER BY s.release_date DESC LIMIT 80`, [like, like, like]);
     const vm = variantsOf(rows.map(r => r.card_id));
-    document.getElementById('res').innerHTML = rows.map(r => `<a class="item" href="#/card/${encodeURIComponent(r.card_id)}">${img(r.image_base)}<div class="col" style="flex:1"><b>${esc(r.name)} ${COL.cards[r.card_id] ? '<span class="up">✓</span>' : ''}</b><span class="muted">${esc(r.set_name)} · ${esc(r.local_id)} · ${esc(r.rarity || '')}${r.region === 'asia' ? ' · JP' : ''}</span></div><b>${eur(cheapest(vm[r.card_id]))}</b></a>`).join('') || '<p class="muted">Sin resultados.</p>';
+    document.getElementById('res').innerHTML = rows.map(r => `<a class="item" href="#/card/${encodeURIComponent(r.card_id)}">${img(r.image_base, 'thumb', '', r.card_id)}<div class="col" style="flex:1"><b>${esc(r.name)} ${COL.cards[r.card_id] ? '<span class="up">✓</span>' : ''}</b><span class="muted">${esc(r.set_name)} · ${esc(r.local_id)} · ${esc(r.rarity || '')}${r.region === 'asia' ? ' · JP' : ''}</span></div><b>${eur(cheapest(vm[r.card_id]))}</b></a>`).join('') || '<p class="muted">Sin resultados.</p>';
   };
   inp.oninput = () => { clearTimeout(t); t = setTimeout(run, 200); };
   if (searchQ) run();
@@ -689,8 +722,8 @@ function viewSettings() {
     <div class="card col" style="gap:10px"><b>Datos</b><span class="muted">Cartas y sets: TCGdex (licencia MIT). Precios: guía pública de Cardmarket. Imágenes: TCGdex. 9Bolsillos no está afiliado a Pokémon, Cardmarket ni TCGdex.</span></div>
   </div>`;
   document.getElementById('dbf').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const b = await f.arrayBuffer(); openDb(b); await idbPut('db', b); await idbPut('db_date', PRICE_DATE); toast('Base de datos actualizada'); viewSettings(); } catch (e) { alert('No se pudo cargar: ' + e.message); } };
-  document.getElementById('exp').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(COL, null, 1)], { type: 'application/json' })); a.download = `9bolsillos-coleccion-${new Date().toISOString().slice(0, 10)}.json`; a.click(); };
-  document.getElementById('imp').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const c = JSON.parse(await f.text()); if (!c.cards) throw new Error('formato'); if (!confirm('Esto sustituye tu colección actual por la de la copia. ¿Seguir?')) return; COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {} }, c); saveCol(); toast('Colección importada'); viewSettings(); } catch (e) { alert('Archivo no válido'); } };
+  document.getElementById('exp').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(Object.assign({}, COL, { images: CUSTOM_IMG }), null, 1)], { type: 'application/json' })); a.download = `9bolsillos-coleccion-${new Date().toISOString().slice(0, 10)}.json`; a.click(); };
+  document.getElementById('imp').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const c = JSON.parse(await f.text()); if (!c.cards) throw new Error('formato'); if (!confirm('Esto sustituye tu colección actual por la de la copia. ¿Seguir?')) return; const imgs = c.images || {}; delete c.images; COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {} }, c); saveCol(); for (const [k, v] of Object.entries(imgs)) { CUSTOM_IMG[k] = v; await idbPut('img:' + k, v); } toast('Colección importada'); viewSettings(); } catch (e) { alert('Archivo no válido'); } };
 }
 
 function viewWelcome(msg) {
@@ -762,6 +795,7 @@ async function autoUpdate() {
 (async function init() {
   try {
     SQL = await initSqlJs();
+    try { await loadCustomImgs(); } catch (e) {}
     if (ONLINE) {
       try { if (await autoUpdate()) return start(); }
       catch (e) { console.warn('Sin actualización automática:', e); }
