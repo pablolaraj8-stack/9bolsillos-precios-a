@@ -337,14 +337,14 @@ function viewSettings() {
   const days = HAS_HISTORY ? q('SELECT COUNT(DISTINCT day) n FROM history')[0].n : 0;
   $view.innerHTML = `<div class="stack"><div class="row"><a href="#/" class="pill" style="display:flex;align-items:center">←</a><h1>Ajustes</h1></div>
     <div class="card col" style="gap:10px"><b>Base de datos</b><span class="muted">Precios del ${PRICE_DATE.split('-').reverse().join('/')} · ${days} día${days === 1 ? '' : 's'} de historial</span>
-      <span class="muted">Para actualizar: descarga <b>9bolsillos.db</b> de tu repositorio de GitHub (Releases → datos) y cárgala aquí.</span>
+      <span class="muted">${ONLINE ? 'Se actualiza sola cada vez que abres la app y hay precios nuevos.' : 'Para actualizar: descarga <b>9bolsillos.db</b> de tu repositorio de GitHub (Releases → datos) y cárgala aquí.'}</span>
       <label class="btn sec" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Cargar base de datos nueva<input type="file" id="dbf" accept=".db" hidden></label></div>
     <div class="card col" style="gap:10px"><b>Tu colección</b><span class="muted">${Object.keys(COL.cards).length} cartas, ${Object.keys(COL.sealed).length} sellados y ${Object.keys(COL.alerts).length} alertas. Se guardan solo en este navegador: haz copias de vez en cuando.</span>
       <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="exp">Exportar copia</button>
       <label class="btn sec" style="display:flex;align-items:center;cursor:pointer">Importar copia<input type="file" id="imp" accept=".json" hidden></label></div></div>
     <div class="card col" style="gap:10px"><b>Datos</b><span class="muted">Cartas y sets: TCGdex (licencia MIT). Precios: guía pública de Cardmarket. Imágenes: TCGdex. 9Bolsillos no está afiliado a Pokémon, Cardmarket ni TCGdex.</span></div>
   </div>`;
-  document.getElementById('dbf').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const b = await f.arrayBuffer(); openDb(b); await idbPut('db', b); toast('Base de datos actualizada'); viewSettings(); } catch (e) { alert('No se pudo cargar: ' + e.message); } };
+  document.getElementById('dbf').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const b = await f.arrayBuffer(); openDb(b); await idbPut('db', b); await idbPut('db_date', PRICE_DATE); toast('Base de datos actualizada'); viewSettings(); } catch (e) { alert('No se pudo cargar: ' + e.message); } };
   document.getElementById('exp').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(COL, null, 1)], { type: 'application/json' })); a.download = `9bolsillos-coleccion-${new Date().toISOString().slice(0, 10)}.json`; a.click(); };
   document.getElementById('imp').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const c = JSON.parse(await f.text()); if (!c.cards) throw new Error('formato'); if (!confirm('Esto sustituye tu colección actual por la de la copia. ¿Seguir?')) return; COL = Object.assign({ sealed: {}, alerts: {} }, c); saveCol(); toast('Colección importada'); viewSettings(); } catch (e) { alert('Archivo no válido'); } };
 }
@@ -359,7 +359,7 @@ function viewWelcome(msg) {
   document.getElementById('dbf').onchange = async ev => {
     const f = ev.target.files[0]; if (!f) return;
     $view.querySelector('label').textContent = 'Cargando…';
-    try { const b = await f.arrayBuffer(); openDb(b); await idbPut('db', b); start(); }
+    try { const b = await f.arrayBuffer(); openDb(b); await idbPut('db', b); await idbPut('db_date', PRICE_DATE); start(); }
     catch (e) { viewWelcome('No se pudo cargar: ' + e.message); }
   };
 }
@@ -386,9 +386,35 @@ function route() {
 function start() { $tabs.hidden = false; route(); }
 window.addEventListener('hashchange', route);
 
+// Descarga automática cuando la app está publicada en internet (GitHub Pages)
+const ONLINE = location.protocol.startsWith('http');
+async function autoUpdate() {
+  const v = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
+  if (!v || !v.prices_date) return false;
+  const have = await idbGet('db_date');
+  if (have && have >= v.prices_date && await idbGet('db')) return false;
+  $view.innerHTML = `<div class="center"><h1>9Bolsillos</h1><p>Descargando precios del ${esc(v.prices_date.split('-').reverse().join('/'))}…</p><p class="muted" id="prog"></p></div>`;
+  const r = await fetch('9bolsillos.db?v=' + encodeURIComponent(v.prices_date), { cache: 'no-store' });
+  if (!r.ok) throw new Error('No se pudo descargar la base de datos (' + r.status + ')');
+  const total = +r.headers.get('content-length') || 0, reader = r.body.getReader(), parts = []; let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read(); if (done) break;
+    parts.push(value); got += value.length;
+    const pg = document.getElementById('prog'); if (pg) pg.textContent = total ? Math.round(got / total * 100) + ' %' : (got / 1048576).toFixed(1) + ' MB';
+  }
+  const bytes = new Uint8Array(got); let off = 0; parts.forEach(p => { bytes.set(p, off); off += p.length; });
+  openDb(bytes.buffer);
+  await idbPut('db', bytes.buffer); await idbPut('db_date', v.prices_date);
+  return true;
+}
+
 (async function init() {
   try {
     SQL = await initSqlJs();
+    if (ONLINE) {
+      try { if (await autoUpdate()) return start(); }
+      catch (e) { console.warn('Sin actualización automática:', e); }
+    }
     const saved = await idbGet('db');
     if (saved) { try { openDb(saved); return start(); } catch (e) { await idbDel('db'); } }
     viewWelcome();
