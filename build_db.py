@@ -107,8 +107,24 @@ def load_tcgdex(root):
                                       dex=int(dex) if dex else None, name_local=local_name,
                                       illustrator=first(r"\n\tillustrator:\s*['\"]([^'\"]+)", ct),
                                       image=IMG.format(lang=img_lang, serie=serie_id, set=set_id, local=local),
-                                      variants=parse_variants(ct)))
+                                      variants=parse_variants(ct),
+                                      sig=attack_sig(ct) if region == "int" else None))
     return sets, cards
+
+
+def attack_sig(ct):
+    """Nombre en inglés + ataques/habilidades: identifica una ilustración entre idiomas."""
+    names = [m.group(1) for m in re.finditer(r"name:\s*\{[^}]*?\ben:\s*['\"]((?:[^'\"\\]|\\.)*)['\"]", ct, re.S)]
+    if not names:
+        return None
+    return (names[0].lower(), tuple(sorted(a.lower() for a in names[1:])))
+
+
+def cm_sig(name):
+    m = re.match(r"^(.*?)\s*\[(.*)\]\s*$", name or "")
+    if not m:
+        return None
+    return (m.group(1).strip().lower(), tuple(sorted(x.strip().lower() for x in m.group(2).split("|") if x.strip())))
 
 
 SCHEMA = """
@@ -123,6 +139,11 @@ CREATE TABLE cards(
 CREATE TABLE cm_products(
   cm_product_id INTEGER PRIMARY KEY, kind TEXT, name TEXT, category TEXT,
   cm_expansion_id INTEGER, date_added TEXT);
+-- Cartas de Cardmarket sin set en TCGdex (sobre todo japonesas antiguas) cuyo ilustrador se deduce
+-- porque su nombre y ataques coinciden con una carta internacional de un único ilustrador
+CREATE TABLE cm_extra(
+  cm_product_id INTEGER PRIMARY KEY, name TEXT, illustrator TEXT, ref_card_id TEXT, cm_expansion_id INTEGER, date_added TEXT);
+CREATE INDEX idx_extra_ill ON cm_extra(illustrator COLLATE NOCASE);
 CREATE TABLE card_variants(
   card_id TEXT REFERENCES cards(card_id), cm_product_id INTEGER, variant TEXT, subtype TEXT, stamp TEXT,
   ambiguous INTEGER DEFAULT 0, foil TEXT, langs TEXT);
@@ -221,6 +242,26 @@ def main():
         db.executemany("INSERT OR REPLACE INTO cm_products VALUES (?,?,?,?,?,?)",
                        [(p["idProduct"], kind, p["name"], p["categoryName"], p["idExpansion"],
                          None if p["dateAdded"].startswith("0000") else p["dateAdded"]) for p in prods])
+
+    # Cruce por nombre + ataques para las cartas de Cardmarket que TCGdex no tiene enlazadas
+    sig_ill, sig_ref = {}, {}
+    for c in cards:
+        if c.get("sig") and c["illustrator"]:
+            sig_ill.setdefault(c["sig"], set()).add(c["illustrator"].lower())
+            sig_ref.setdefault(c["sig"], (c["card_id"], c["illustrator"]))
+    int_exp = {s["cm_exp"] for s in sets if s["cm_exp"] and s["region"] == "int"}
+    mapped = set(owners)
+    extra = []
+    for p in json.load(open(a.singles, encoding="utf-8"))["products"]:
+        if p["idProduct"] in mapped or p["idExpansion"] in int_exp:
+            continue
+        sg = cm_sig(p["name"])
+        if sg and len(sig_ill.get(sg, ())) == 1:
+            ref, ill = sig_ref[sg]
+            extra.append((p["idProduct"], re.sub(r"\s*\[.*$", "", p["name"]), ill, ref, p["idExpansion"],
+                          None if p["dateAdded"].startswith("0000") else p["dateAdded"]))
+    db.executemany("INSERT OR REPLACE INTO cm_extra VALUES (?,?,?,?,?,?)", extra)
+    print("Cartas extra con ilustrador deducido vía Cardmarket:", len(extra))
 
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "auto"))
     sys.path.insert(1, os.path.dirname(os.path.abspath(__file__)))

@@ -43,8 +43,10 @@ def apply(db, prices_path, keep_daily=90):
     db.executemany("INSERT INTO prices VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                    [(p["idProduct"], date, *[p.get(f) for f in FIELDS]) for p in rows])
 
+    has_extra = db.execute("SELECT 1 FROM sqlite_master WHERE name='cm_extra'").fetchone()
     tracked = {r[0] for r in db.execute(
-        "SELECT cm_product_id FROM card_variants UNION SELECT cm_product_id FROM cm_products WHERE kind='sealed'")}
+        "SELECT cm_product_id FROM card_variants UNION SELECT cm_product_id FROM cm_products WHERE kind='sealed'"
+        + (" UNION SELECT cm_product_id FROM cm_extra" if has_extra else ""))}
     day = int(date.replace("-", ""))
     hist = []
     for p in rows:
