@@ -172,7 +172,7 @@ function chartSvg(points, w = 700, h = 180) {
 }
 
 /* ---------- vistas ---------- */
-let homePeriod = 30;
+let homePeriod = 30, homeMoves = 'up';
 function viewHome() {
   const ids = Object.keys(COL.cards);
   const vmap = variantsOf(ids);
@@ -213,10 +213,20 @@ function viewHome() {
   else if (cost) { const d = costVal - cost; change = `<div class="${d >= 0 ? 'up' : 'down'}" style="font-weight:600">${d >= 0 ? '+' : '−'}${eur(Math.abs(d))} (${pct(d / cost * 100)}) en las cartas con precio de compra</div>`; }
 
   // mayores subidas: precio actual vs media de 30 días (hasta tener historial)
-  const movers = owned.filter(o => o.v && o.p != null).map(o => {
-    const base = isRevHolo(o.v) ? o.v.avg30_holo : o.v.avg30;
-    return Object.assign(o, { ch: base ? (o.p - base) / base * 100 : null });
-  }).filter(o => o.ch != null && o.p >= 1).sort((a, b) => b.ch - a.ch).slice(0, 5);
+  // Variación de cada carta: contra su precio al inicio del periodo (si hay historial) o contra su media de 30 días
+  const lim = pts.length ? pts[0][0] : 0, firstP = {};
+  hist.forEach(h => { if (h.day >= lim && firstP[h.cm_product_id] == null) firstP[h.cm_product_id] = h; });
+  const useHist = days.length >= 2;
+  const allMoves = owned.filter(o => o.v && o.p != null).map(o => {
+    const h0 = firstP[o.v.cm_product_id], hc = h0 ? (isRevHolo(o.v) ? h0.trend_holo_c : h0.trend_c) : null;
+    const base = useHist && hc ? hc / 100 : (isRevHolo(o.v) ? o.v.avg30_holo : o.v.avg30);
+    return Object.assign(o, { ch: base ? (o.p - base) / base * 100 : null, chE: base ? (o.p - base) * o.qty : null });
+  }).filter(o => o.ch != null && o.p >= 1 && Math.abs(o.ch) >= 0.05);
+  const movers = (homeMoves === 'down' ? allMoves.filter(o => o.ch < 0).sort((a, b) => a.ch - b.ch)
+    : homeMoves === 'abs' ? allMoves.slice().sort((a, b) => Math.abs(b.chE) - Math.abs(a.chE))
+    : allMoves.filter(o => o.ch > 0).sort((a, b) => b.ch - a.ch)).slice(0, 8);
+  const moveTitle = { up: 'Mayores subidas', down: 'Mayores bajadas', abs: 'Mayor variación en €' }[homeMoves];
+  const moveBase = useHist ? `desde el ${dayToStr(lim)}` : 'vs media 30 días';
   const names = {};
   if (movers.length) q(`SELECT c.card_id, COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local) name, c.local_id, c.image_base, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${movers.map(() => '?').join(',')})`, movers.map(m => m.id)).forEach(r => names[r.card_id] = r);
 
@@ -233,12 +243,15 @@ function viewHome() {
     ${total ? `<div class="card col" style="gap:10px"><b>Reparto</b>
       <div class="bar" style="display:flex;gap:2px;background:none">${[[intV, 'var(--up)'], [jpV, 'var(--down)'], [sealedV, 'var(--blue)']].filter(x => x[0] > 0).map(x => `<div style="width:${x[0] / total * 100}%;background:${x[1]};border-radius:3px"></div>`).join('')}</div>
       <div class="row muted" style="gap:18px;flex-wrap:wrap"><span>Español/inglés <b style="color:var(--tx)">${eur(intV)}</b></span><span>Japonés y otros <b style="color:var(--tx)">${eur(jpV)}</b></span><span>Sellado <b style="color:var(--tx)">${eur(sealedV)}</b></span></div></div>` : ''}
-    ${movers.length ? `<div class="col"><h2>Mayores subidas <span class="muted">(vs media 30 días)</span></h2><div class="list">${movers.map(m => {
-      const r = names[m.id] || {}; return `<a class="item" href="#/card/${encodeURIComponent(m.id)}">${img(r.image_base, 'thumb', '', m.id)}<div class="col" style="flex:1"><b>${esc(r.name)} · ${esc(r.local_id)}</b><span class="muted">${esc(r.set_name)}</span></div><div class="col" style="align-items:flex-end"><b>${eur(m.p)}</b><span class="${m.ch >= 0 ? 'up' : 'down'}" style="font-size:13px">${pct(m.ch)}</span></div></a>`;
-    }).join('')}</div></div>` : ''}
+    ${allMoves.length ? `<div class="col" style="gap:8px"><div class="between" style="flex-wrap:wrap;gap:8px"><h2>${moveTitle} <span class="muted">(${moveBase})</span></h2>
+      <div class="pills">${[['up', 'Subidas'], ['down', 'Bajadas'], ['abs', 'Variación €']].map(([k, l]) => `<button class="pill ${homeMoves === k ? 'on' : ''}" data-mv2="${k}">${l}</button>`).join('')}</div></div>
+      <div class="list">${movers.map(m => {
+      const r = names[m.id] || {}; return `<a class="item" href="#/card/${encodeURIComponent(m.id)}">${img(r.image_base, 'thumb', '', m.id)}<div class="col" style="flex:1"><b>${esc(r.name)} · ${esc(r.local_id)}</b><span class="muted">${esc(r.set_name)}${m.qty > 1 ? ' · ' + m.qty + ' uds' : ''}</span></div><div class="col" style="align-items:flex-end"><b>${eur(m.p)}</b><span class="${m.ch >= 0 ? 'up' : 'down'}" style="font-size:13px">${pct(m.ch)} · ${m.chE >= 0 ? '+' : '−'}${eur(Math.abs(m.chE))}</span></div></a>`;
+    }).join('') || `<p class="muted">Ninguna carta tuya ${homeMoves === 'down' ? 'ha bajado' : 'ha subido'} en este periodo.</p>`}</div></div>` : ''}
     ${!ids.length && !sealedIds.length ? `<div class="card col" style="gap:10px"><b>Empieza tu colección</b><span class="muted">Entra en Colección, abre un set y toca el botón ＋ de cada carta que tengas.</span><a class="btn" style="display:flex;align-items:center;justify-content:center" href="#/sets">Ver sets</a></div>` : ''}
   </div>`;
   $view.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { homePeriod = +b.dataset.p; viewHome(); });
+  $view.querySelectorAll('[data-mv2]').forEach(b => b.onclick = () => { homeMoves = b.dataset.mv2; viewHome(); });
 }
 
 const LANGS = { es: 'Español / inglés', ja: 'Japonés', ko: 'Coreano', 'zh-tw': 'Chino (trad.)', 'zh-cn': 'Chino (simpl.)', id: 'Indonesio', th: 'Tailandés' };
@@ -891,7 +904,7 @@ async function syncNow(quiet) {
       if (!quiet) toast('Colección subida a la nube');
     }
     SB_LAST = new Date(); localStorage.setItem('9b.synced', SB_USER.id);
-  } catch (e) { console.warn('Sync:', e); if (!quiet) toast('No se pudo sincronizar: ' + (e.message || e)); }
+  } catch (e) { console.warn('Sync:', e); toast('No se pudo sincronizar: ' + (e.message || e)); }
   SB_BUSY = false;
 }
 function mergeCols(a, b) {
@@ -927,7 +940,11 @@ function syncCard() {
     <div class="row" style="flex-wrap:wrap"><button class="btn" id="sbin">Entrar</button><button class="btn sec" id="sbup">Crear cuenta</button></div></div>`;
   return `<div class="card col" style="gap:10px"><b>Sincronizar entre dispositivos</b>
     <span class="muted">Conectado como <b style="color:var(--tx)">${esc(SB_USER.email)}</b>${SB_LAST ? ` · última sincronización ${SB_LAST.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` : ''}. Los cambios se guardan solos.</span>
-    <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="sbnow">Sincronizar ahora</button><button class="btn warn" id="sbout">Cerrar sesión</button></div></div>`;
+    <span class="muted" id="sbdiag">Comprobando la nube…</span>
+    <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="sbnow">Sincronizar ahora</button><button class="btn warn" id="sbout">Cerrar sesión</button></div>
+    <details><summary class="muted" style="cursor:pointer">Opciones avanzadas</summary><div class="row" style="flex-wrap:wrap;margin-top:8px">
+      <button class="btn sec" id="sbup2">Subir este dispositivo a la nube</button><button class="btn sec" id="sbdown">Bajar la colección de la nube</button></div>
+      <span class="muted" style="font-size:12px">"Subir" sustituye lo que hay en la nube por lo de este dispositivo. "Bajar" hace lo contrario. Úsalos si los dos dispositivos no coinciden.</span></details></div>`;
 }
 function wireSync(rerender) {
   const g = id => document.getElementById(id);
@@ -935,6 +952,19 @@ function wireSync(rerender) {
   if (g('sbup')) g('sbup').onclick = async () => { const email = g('sbe').value.trim(), password = g('sbp').value; if (password.length < 8) { alert('La contraseña debe tener al menos 8 caracteres'); return; } const { data, error } = await SB.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } }); if (error) { alert('No se pudo crear la cuenta: ' + error.message); return; } if (data.session) { SB_USER = data.session.user; await syncNow(); rerender(); } else alert('Cuenta creada. Revisa tu email para confirmarla y luego pulsa "Entrar".'); };
   if (g('sbnow')) g('sbnow').onclick = async () => { g('sbnow').textContent = 'Sincronizando…'; await syncNow(); rerender(); };
   if (g('sbout')) g('sbout').onclick = async () => { await SB.auth.signOut(); SB_USER = null; rerender(); };
+  if (g('sbdiag')) (async () => {
+    const { data, error } = await SB.from('collections').select('data, updated_at').eq('user_id', SB_USER.id).maybeSingle();
+    const local = Object.keys(COL.cards).length;
+    g('sbdiag').innerHTML = error ? `<span class="down">Error con la nube: ${esc(error.message)}</span>`
+      : `En la nube: <b style="color:var(--tx)">${data && data.data && data.data.cards ? Object.keys(data.data.cards).length : 0} cartas</b>${data ? ' (guardado ' + new Date(data.updated_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + ')' : ' (vacía)'} · en este dispositivo: <b style="color:var(--tx)">${local} cartas</b>`;
+  })();
+  if (g('sbup2')) g('sbup2').onclick = async () => { if (!confirm('¿Sustituir lo que hay en la nube por la colección de este dispositivo?')) return; try { COL.updatedAt = Date.now(); localStorage.setItem(STORE_KEY, JSON.stringify(COL)); await pushNow(true); localStorage.setItem('9b.synced', SB_USER.id); toast('Subida a la nube'); } catch (e) { alert('Error: ' + e.message); } rerender(); };
+  if (g('sbdown')) g('sbdown').onclick = async () => { if (!confirm('¿Sustituir la colección de este dispositivo por la de la nube?')) return;
+    const { data, error } = await SB.from('collections').select('data, images').eq('user_id', SB_USER.id).maybeSingle();
+    if (error || !data || !data.data || !data.data.cards) { alert(error ? 'Error: ' + error.message : 'La nube está vacía'); return; }
+    COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {} }, data.data); localStorage.setItem(STORE_KEY, JSON.stringify(COL)); localStorage.setItem('9b.synced', SB_USER.id);
+    for (const [k, v] of Object.entries(data.images || {})) { CUSTOM_IMG[k] = v; await idbPut('img:' + k, v); }
+    toast('Colección bajada de la nube'); rerender(); };
 }
 
 /* ---------- router ---------- */
