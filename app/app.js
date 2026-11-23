@@ -30,7 +30,7 @@ function imgUrls(base, size) {
   const en = base + '/' + size + '.webp';
   return base.includes('/en/') ? [base.replace('/en/', '/es/') + '/' + size + '.webp', en] : [en, ''];
 }
-const IMG_ERR = "if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb=''}else{this.style.visibility='hidden'}";
+const IMG_ERR = "if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb=''}else{this.style.visibility='hidden';var n=this.parentNode&&this.parentNode.querySelector('.fbn');if(n)n.style.display=''}";
 function imgTag(base, size, cls, alt, extra = '') {
   const [src, fb] = imgUrls(base, size);
   if (!src) return cls ? `<div class="${cls}"></div>` : '';
@@ -39,8 +39,8 @@ function imgTag(base, size, cls, alt, extra = '') {
 
 /* ---------- colección (localStorage) ---------- */
 function loadCol() {
-  try { const c = JSON.parse(localStorage.getItem(STORE_KEY)); if (c && c.cards) return Object.assign({ sealed: {}, alerts: {}, illustrators: {} }, c); } catch (e) {}
-  return { cards: {}, sealed: {}, alerts: {}, illustrators: {} };
+  try { const c = JSON.parse(localStorage.getItem(STORE_KEY)); if (c && c.cards) return Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {} }, c); } catch (e) {}
+  return { cards: {}, sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {} };
 }
 let COL = loadCol();
 function saveCol() { localStorage.setItem(STORE_KEY, JSON.stringify(COL)); }
@@ -167,7 +167,7 @@ function viewHome() {
   const periods = [[7, '1S'], [30, '1M'], [90, '3M'], [365, '1A'], [0, 'Todo']];
   $view.innerHTML = `<div class="stack">
     <div class="between"><h1>9Bolsillos</h1><a class="pill" style="display:flex;align-items:center" href="#/settings">Ajustes</a></div>
-    ${alertsHit ? `<a class="alertbox" href="#/alerts" style="color:var(--tx)"><b class="up">${alertsHit} alerta${alertsHit > 1 ? 's' : ''} de precio</b> ${alertsHit > 1 ? 'han saltado' : 'ha saltado'}. Ver →</a>` : ''}
+    ${alertsHit ? `<a class="alertbox" href="#/wish" style="color:var(--tx)"><b class="up">${alertsHit} alerta${alertsHit > 1 ? 's' : ''} de precio</b> ${alertsHit > 1 ? 'han saltado' : 'ha saltado'}. Ver →</a>` : ''}
     <div class="col"><span class="muted">Valor de tu colección · precios del ${PRICE_DATE.split('-').reverse().join('/')}</span>
       <div class="big">${eur(total)}</div>${change}
       <span class="muted">${n} carta${n === 1 ? '' : 's'}${sealedIds.length ? ` · ${sealedIds.length} producto${sealedIds.length > 1 ? 's' : ''} sellado${sealedIds.length > 1 ? 's' : ''}` : ''}${cost ? ` · pagaste ${eur(cost)} por las que tienen precio de compra` : ''}</span></div>
@@ -226,7 +226,7 @@ function cardBrowser(key, cards, vmap, el, headEl, opts = {}) {
     const tile = (c, pocket) => {
       const has = !!COL.cards[c.card_id], pr = has ? vPrice(ownedVariant(c.card_id, vmap[c.card_id])) : cheapest(vmap[c.card_id]);
       return `<div class="tile ${has ? 'has' : 'miss'}" data-open="${esc(c.card_id)}" title="${pocket ? esc(pocket) : ''}">
-        <div class="img">${esc(c.name)}${imgTag(c.image_base, 'low', '', '')}
+        <div class="img"><span class="fbn" ${c.image_base ? 'style="display:none"' : ''}>${esc(c.name)}</span>${imgTag(c.image_base, 'low', '', '')}
           <button class="own" data-own="${esc(c.card_id)}" aria-label="${has ? 'Quitar de' : 'Añadir a'} mi colección: ${esc(c.name)}">${has ? '✓' : '＋'}</button></div>
         <span class="num">${esc(opts.sub ? opts.sub(c) : c.local_id)}</span>
         <span class="nm">${esc(c.name)}</span><span class="pr">${eur(pr)}</span></div>`;
@@ -341,7 +341,7 @@ function viewIllustrator(name) {
     <div class="card col" style="gap:8px" id="ihead"></div>
     ${browserControls()}
     <div id="grid"></div>
-    <p class="muted">Ordenadas por fecha de salida del set. Precios: tendencia de Cardmarket.</p></div>`;
+    <p class="muted">Ordenadas por fecha de salida del set. Precios: tendencia de Cardmarket.${illLang === 'ja' ? ' En japonés la lista está incompleta: a la base de datos le faltan muchos sets antiguos (DP, BW, XY…) y el ilustrador de algunas cartas.' : ''}</p></div>`;
   document.getElementById('fav').onclick = () => { if (fav) delete COL.illustrators[name]; else COL.illustrators[name] = { since: PRICE_DATE }; saveCol(); viewIllustrator(name); };
   $view.querySelectorAll('[data-il]').forEach(b => b.onclick = () => { illLang = b.dataset.il; viewIllustrator(name); });
   wireControls(() => viewIllustrator(name));
@@ -361,6 +361,7 @@ function viewCard(cardId) {
     const h = sel ? historyFor([sel.cm_product_id]).map(r => [r.day, (sel.variant === 'reverse' ? r.trend_holo_c : r.trend_c)]).filter(r => r[1] != null).map(r => [r[0], r[1] / 100]) : [];
     const p = vPrice(sel), hol = sel && sel.variant === 'reverse';
     const al = sel ? COL.alerts[sel.cm_product_id + '|' + (sel.variant || '')] : null;
+    const sl = COL.sell[cardId];
     const profit = e && e.buy && p != null ? (p - e.buy) * (e.qty || 1) : null;
     $view.innerHTML = `<div class="stack">
       <div class="row"><a href="#/set/${encodeURIComponent(c.set_id)}" class="pill" style="display:flex;align-items:center">←</a><span class="muted">${esc(c.set_name)} · ${esc(c.local_id)}${c.card_count ? '/' + c.card_count : ''} · ${esc(c.rarity || '')}</span></div>
@@ -382,42 +383,280 @@ function viewCard(cardId) {
           ${profit != null ? `<span class="${profit >= 0 ? 'up' : 'down'}" style="font-weight:700">${profit >= 0 ? '+' : '−'}${eur(Math.abs(profit))} (${pct((p - e.buy) / e.buy * 100)})</span>` : ''}
           <div class="row"><button class="btn" id="save">Guardar</button><button class="btn warn" id="del">Quitar</button></div>`
         : `<button class="btn" id="add">＋ La tengo</button>`}</div>
-      ${sel ? `<div class="card col" style="gap:12px"><b>Alerta de precio</b>
-        <label class="f" for="tg">Avísame si esta versión baja de (€)</label>
-        <div class="row"><input type="number" id="tg" step="0.01" min="0" value="${al ? al.target : ''}" placeholder="${p != null ? (Math.floor(p * 0.9 * 100) / 100) : ''}" style="flex:1">
-        <button class="btn" id="setal">${al ? 'Actualizar' : 'Crear alerta'}</button>${al ? '<button class="btn sec" id="delal">Borrar</button>' : ''}</div>
-        <span class="muted">Se comprueba cada vez que abres la app con precios nuevos.</span></div>` : ''}
+      ${sel ? `<div class="card col" style="gap:12px"><b>${al ? '♥ En tu lista de deseos' : 'Lista de deseos'}</b>
+        <label class="f" for="tg">Precio objetivo (opcional): te avisa si esta versión baja de</label>
+        <div class="row" style="flex-wrap:wrap"><input type="number" id="tg" step="0.01" min="0" value="${al && al.target ? al.target : ''}" placeholder="${p != null ? (Math.floor(p * 0.9 * 100) / 100) : ''}" style="flex:1;min-width:120px">
+        <button class="btn" id="setal">${al ? 'Guardar' : '♡ La quiero'}</button>${al ? '<button class="btn sec" id="delal">Quitar</button>' : ''}</div></div>` : ''}
+      ${e ? `<div class="card col" style="gap:12px"><b>${sl ? 'A la venta' : 'Vender'}</b>
+        ${sl ? `<span class="muted">Pides ${eur(sl.price)} · ${esc(sl.cond)} · ${esc(sl.lang)} · ${sl.qty} ud.</span><div class="row"><a class="btn sec" style="display:flex;align-items:center" href="#/sell">Ver lista de venta</a><button class="btn warn" id="unsell">Quitar de venta</button></div>`
+        : `<span class="muted">Precio sugerido: ${eur(p)} (tendencia) · mínimo actual ${eur(hol ? sel && sel.low_holo : sel && sel.low)}</span><button class="btn sec" id="sell">Poner a la venta</button>`}</div>` : ''}
     </div>`;
     const vsel = document.getElementById('vsel'); if (vsel) vsel.onchange = () => { sel = vs[+vsel.value]; if (COL.cards[cardId]) { COL.cards[cardId].cm = sel.cm_product_id; COL.cards[cardId].variant = sel.variant; saveCol(); } draw(); };
     const add = document.getElementById('add'); if (add) add.onclick = () => { COL.cards[cardId] = { set: c.set_id, cm: sel ? sel.cm_product_id : null, variant: sel ? sel.variant : null, qty: 1 }; saveCol(); viewCard(cardId); };
     const save = document.getElementById('save'); if (save) save.onclick = () => { const b = document.getElementById('buy').value; Object.assign(COL.cards[cardId], { qty: Math.max(1, parseInt(document.getElementById('qty').value, 10) || 1), buy: b === '' ? null : parseFloat(b) }); saveCol(); toast('Guardado'); viewCard(cardId); };
     const del = document.getElementById('del'); if (del) del.onclick = () => { delete COL.cards[cardId]; saveCol(); viewCard(cardId); };
-    const sa = document.getElementById('setal'); if (sa) sa.onclick = () => { const t = parseFloat(document.getElementById('tg').value); if (!(t > 0)) { toast('Pon un precio objetivo'); return; } COL.alerts[sel.cm_product_id + '|' + (sel.variant || '')] = { card: cardId, cm: sel.cm_product_id, variant: sel.variant, target: t, created: PRICE_DATE }; saveCol(); toast('Alerta guardada'); draw(); };
+    const sa = document.getElementById('setal'); if (sa) sa.onclick = () => { const v = document.getElementById('tg').value, t = v === '' ? null : parseFloat(v); COL.alerts[sel.cm_product_id + '|' + (sel.variant || '')] = { card: cardId, cm: sel.cm_product_id, variant: sel.variant, target: t > 0 ? t : null, created: (al && al.created) || PRICE_DATE }; saveCol(); toast('Guardada en tu lista de deseos'); draw(); };
     const da = document.getElementById('delal'); if (da) da.onclick = () => { delete COL.alerts[sel.cm_product_id + '|' + (sel.variant || '')]; saveCol(); draw(); };
+    const se = document.getElementById('sell'); if (se) se.onclick = () => { COL.sell[cardId] = { qty: 1, price: p != null ? Math.round(p * 100) / 100 : null, cond: 'NM', lang: c.region === 'asia' ? 'JP' : 'ES', cm: sel ? sel.cm_product_id : null, variant: sel ? sel.variant : null }; saveCol(); toast('Añadida a tu lista de venta'); draw(); };
+    const us = document.getElementById('unsell'); if (us) us.onclick = () => { delete COL.sell[cardId]; saveCol(); draw(); };
   };
   draw();
 }
 
+/* ---------- lista de deseos (con precio objetivo = alerta) ---------- */
 function alertStatus() {
   const list = Object.entries(COL.alerts).map(([k, a]) => Object.assign({ key: k }, a));
   if (!list.length || !DB) return [];
   const ids = [...new Set(list.map(a => a.cm))];
   const pr = {}; q(`SELECT * FROM prices WHERE cm_product_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => pr[r.cm_product_id] = r);
-  const info = {}; q(`SELECT c.card_id, COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local) name, c.local_id, c.image_base, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${list.map(() => '?').join(',')})`, list.map(a => a.card)).forEach(r => info[r.card_id] = r);
+  const info = {}; q(`SELECT c.card_id, ${NAME} name, c.local_id, c.image_base, s.lang, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${list.map(() => '?').join(',')})`, list.map(a => a.card)).forEach(r => info[r.card_id] = r);
   return list.map(a => {
     const r = pr[a.cm] || {}, now = vPrice(Object.assign({ variant: a.variant }, r));
     const low = a.variant === 'reverse' ? r.low_holo : r.low;
-    return Object.assign(a, { now, low, hit: now != null && now <= a.target, lowHit: low != null && low <= a.target, info: info[a.card] || {} });
-  }).sort((x, y) => (y.hit - x.hit) || (y.lowHit - x.lowHit));
+    const ratio = a.target && now != null ? now / a.target : null;
+    return Object.assign(a, { now, low, ratio, hit: !!a.target && now != null && now <= a.target, lowHit: !!a.target && low != null && low <= a.target, info: info[a.card] || {} });
+  }).sort((x, y) => (x.ratio == null) - (y.ratio == null) || (x.ratio ?? 0) - (y.ratio ?? 0) || (x.now ?? 1e9) - (y.now ?? 1e9));
 }
-function viewAlerts() {
+function viewWishlist() {
   const list = alertStatus();
-  $view.innerHTML = `<div class="stack"><h1>Alertas</h1>
-    ${list.length ? `<div class="list">${list.map(a => `<a class="item" href="#/card/${encodeURIComponent(a.card)}" style="${a.hit ? 'background:#12271D;border-radius:10px;padding:10px' : ''}">
-      ${img(a.info.image_base)}<div class="col" style="flex:1"><b>${esc(a.info.name)} · ${esc(a.info.local_id)}</b><span class="muted">${esc(a.info.set_name)} · ${esc(vLabel({ variant: a.variant }))}</span>
-      <span style="font-size:13px" class="${a.hit ? 'up' : ''}">${a.hit ? '¡Ha bajado! ' : ''}Objetivo ${eur(a.target)} · ahora ${eur(a.now)}${!a.hit && a.lowHit ? ` · <span class="up">hay ofertas desde ${eur(a.low)}</span>` : ''}</span></div></a>`).join('')}</div>`
-      : `<div class="card muted">No tienes alertas. Abre cualquier carta y crea una con el precio al que te gustaría comprarla.</div>`}
-    <p class="muted">"Ahora" es el precio de tendencia. Si alguien vende por debajo de tu objetivo aunque la tendencia no haya bajado, también te lo indicamos.</p></div>`;
+  const total = list.reduce((t, a) => t + (a.now || 0), 0);
+  const hits = list.filter(a => a.hit), hitsCost = hits.reduce((t, a) => t + (a.now || 0), 0);
+  const lowTotal = list.reduce((t, a) => t + (a.low ?? a.now ?? 0), 0);
+  $view.innerHTML = `<div class="stack"><h1>Lista de deseos</h1>
+    ${list.length ? `<div class="card col" style="gap:6px"><span class="muted">${list.length} carta${list.length > 1 ? 's' : ''} · comprarlo todo hoy</span>
+      <div class="big">${eur(total)}</div>
+      <span class="muted">Al precio mínimo publicado: <b style="color:var(--tx)">${eur(lowTotal)}</b>${hits.length ? ` · <span class="up">${hits.length} ya ${hits.length > 1 ? 'están' : 'está'} en tu objetivo (${eur(hitsCost)})</span>` : ''}</span></div>
+      <div class="list">${list.map(a => {
+        const near = a.ratio == null ? 'Sin precio objetivo' : a.hit ? '¡Ya está en tu objetivo!' : `A un ${Math.round((a.ratio - 1) * 100)} % de tu objetivo`;
+        return `<div class="item" style="${a.hit ? 'background:#12271D;border-radius:10px;padding:10px' : ''}">
+        <a href="#/card/${encodeURIComponent(a.card)}" style="display:flex;gap:12px;align-items:center;flex:1;color:var(--tx)">${img(a.info.image_base)}<div class="col" style="flex:1"><b>${esc(a.info.name)} · ${esc(a.info.local_id)}</b><span class="muted">${esc(a.info.set_name)} · ${esc(vLabel({ variant: a.variant }))}</span>
+        <span style="font-size:13px" class="${a.hit ? 'up' : ''}">${near}${a.target ? ` · objetivo ${eur(a.target)}` : ''}${!a.hit && a.lowHit ? ` · <span class="up">hay ofertas desde ${eur(a.low)}</span>` : ''}</span></div>
+        <b>${eur(a.now)}</b></a><button class="pill" data-bought="${esc(a.key)}" title="La he comprado">✓</button></div>`;
+      }).join('')}</div>`
+      : `<div class="card muted">Tu lista está vacía. Abre cualquier carta y pulsa "♡ La quiero". Si le pones un precio objetivo, te avisa cuando baje.</div>`}
+    <p class="muted">Ordenadas de la más cercana a tu objetivo a la más lejana. "✓" la pasa a tu colección y apunta la compra en tus gastos.</p></div>`;
+  $view.querySelectorAll('[data-bought]').forEach(b => b.onclick = () => {
+    const a = list.find(x => x.key === b.dataset.bought); if (!a) return;
+    const v = prompt(`¿Cuánto has pagado por ${a.info.name}? (€)`, a.now != null ? a.now.toFixed(2).replace('.', ',') : '');
+    if (v === null) return;
+    const price = parseFloat(String(v).replace(',', '.')) || null;
+    const cur = COL.cards[a.card];
+    if (cur) cur.qty = (cur.qty || 1) + 1; else COL.cards[a.card] = { set: a.card.slice(0, a.card.lastIndexOf('-')), cm: a.cm, variant: a.variant, qty: 1, buy: price };
+    COL.purchases.push({ id: Date.now(), date: new Date().toISOString().slice(0, 10), type: 'single', desc: a.info.name + ' · ' + a.info.set_name, qty: 1, price, shop: '', card: a.card, cm: a.cm, variant: a.variant });
+    delete COL.alerts[a.key]; saveCol(); toast('Añadida a tu colección y a tus gastos'); viewWishlist();
+  });
+}
+
+/* ---------- utilidades de productos ---------- */
+const TYPES = { single: 'Carta suelta', sobres: 'Sobres', etb: 'ETB', caja: 'Caja / display', lata: 'Lata / colección', otro: 'Otro' };
+function sealedPrices(ids) {
+  const out = {}; if (!ids.length) return out;
+  q(`SELECT p.cm_product_id, p.name, p.category, pr.trend, pr.avg30, pr.avg7, pr.low, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name
+     FROM cm_products p LEFT JOIN prices pr USING(cm_product_id) LEFT JOIN sets s ON s.set_id = (SELECT MIN(set_id) FROM sets x WHERE x.cm_expansion_id = p.cm_expansion_id)
+     WHERE p.cm_product_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => out[r.cm_product_id] = r);
+  return out;
+}
+function purchaseValue(pu, cardPrice, sealed) {
+  if (pu.card) { const v = cardPrice[pu.card]; return v != null ? v * (pu.qty || 1) : null; }
+  if (pu.cm && sealed[pu.cm]) { const r = sealed[pu.cm]; const p = r.trend ?? r.avg30 ?? r.low; return p != null ? p * (pu.qty || 1) : null; }
+  return null;
+}
+function parseNum(v) { if (v == null) return null; v = String(v).replace(/[€\s]/g, ''); if (/,\d{1,2}$/.test(v)) v = v.replace(/\./g, '').replace(',', '.'); const n = parseFloat(v); return isNaN(n) ? null : n; }
+function parseDate(v) {
+  v = String(v || '').trim(); let m;
+  if ((m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  if ((m = v.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/))) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+  return null;
+}
+function parseCsv(text) {
+  const first = text.split(/\r?\n/)[0] || ''; const d = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ';' : (first.includes('\t') ? '\t' : ',');
+  const rows = []; let row = [], cur = '', inq = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inq) { if (ch === '"' && text[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') inq = false; else cur += ch; }
+    else if (ch === '"') inq = true; else if (ch === d) { row.push(cur); cur = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
+    else cur += ch;
+  }
+  if (cur || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter(r => r.some(x => x.trim()));
+}
+function downloadFile(name, text, type = 'text/csv') {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + text], { type: type + ';charset=utf-8' })); a.download = name; a.click();
+}
+const csvCell = v => { v = v == null ? '' : String(v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+
+/* ---------- gastos ---------- */
+let linkPick = null;
+function viewExpenses() {
+  const P = COL.purchases.slice().sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.id - a.id);
+  const cardIds = [...new Set(P.filter(p => p.card).map(p => p.card))], vm = variantsOf(cardIds), cardPrice = {};
+  cardIds.forEach(id => { const vs = vm[id] || []; const pu = P.find(p => p.card === id); const v = vs.find(x => x.cm_product_id === pu.cm && (x.variant || '') === (pu.variant || '')) || vs[0]; cardPrice[id] = vPrice(v); });
+  const sealed = sealedPrices([...new Set(P.filter(p => !p.card && p.cm).map(p => p.cm))]);
+  const total = P.reduce((t, p) => t + (p.price || 0), 0);
+  const month = new Date().toISOString().slice(0, 7), mTotal = P.filter(p => (p.date || '').startsWith(month)).reduce((t, p) => t + (p.price || 0), 0);
+  let linkedCost = 0, linkedVal = 0;
+  P.forEach(p => { const v = purchaseValue(p, cardPrice, sealed); if (v != null && p.price) { linkedCost += p.price; linkedVal += v; } });
+  const months = []; const d0 = new Date(); d0.setDate(1);
+  for (let i = 11; i >= 0; i--) { const d = new Date(d0); d.setMonth(d0.getMonth() - i); const k = d.toISOString().slice(0, 7); months.push([k, P.filter(p => (p.date || '').startsWith(k)).reduce((t, p) => t + (p.price || 0), 0)]); }
+  const mx = Math.max(1, ...months.map(m => m[1]));
+  const byType = {}; P.forEach(p => byType[p.type] = (byType[p.type] || 0) + (p.price || 0));
+  const shops = [...new Set(P.map(p => p.shop).filter(Boolean))];
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center">←</a><h1>Gastos</h1></div>
+    <div class="card col" style="gap:6px"><span class="muted">Gastado en total</span><div class="big">${eur(total)}</div>
+      <span class="muted">Este mes: <b style="color:var(--tx)">${eur(mTotal)}</b>${linkedCost ? ` · Lo que compraste (cartas y sellado con precio) hoy vale <b style="color:var(--tx)">${eur(linkedVal)}</b> <span class="${linkedVal >= linkedCost ? 'up' : 'down'}">(${pct((linkedVal - linkedCost) / linkedCost * 100)})</span>` : ''}</span></div>
+    <div class="card col" style="gap:8px"><b>Por mes</b>
+      <div style="display:grid;grid-template-columns:repeat(12,1fr);gap:4px;align-items:end;height:120px">${months.map(([k, v]) => `<div title="${k}: ${eur(v)}" style="height:${Math.max(2, v / mx * 100)}%;background:${k === month ? 'var(--up)' : '#2D5A45'};border-radius:3px"></div>`).join('')}</div>
+      <div style="display:grid;grid-template-columns:repeat(12,1fr);gap:4px" class="muted">${months.map(([k]) => `<span style="font-size:10px;text-align:center">${'EFMAMJJASOND'[+k.slice(5) - 1]}</span>`).join('')}</div>
+      ${Object.keys(byType).length ? `<div class="row muted" style="flex-wrap:wrap;gap:14px">${Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([t, v]) => `<span>${esc(TYPES[t] || t)} <b style="color:var(--tx)">${eur(v)}</b></span>`).join('')}</div>` : ''}</div>
+    <div class="card col" style="gap:10px" id="newp"><b>Nueva compra</b>
+      <div class="row" style="flex-wrap:wrap">
+        <label class="f">Fecha<input type="date" id="pd" value="${new Date().toISOString().slice(0, 10)}"></label>
+        <label class="f">Tipo<select id="pt">${Object.entries(TYPES).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
+        <label class="f">Cantidad<input type="number" id="pq" value="1" min="1" style="width:80px"></label>
+        <label class="f">Precio total (€)<input type="number" id="pp" step="0.01" min="0" style="width:120px"></label>
+        <label class="f">Tienda<input type="text" id="ps" list="shops" placeholder="Cardmarket, Padis…" style="width:160px"><datalist id="shops">${shops.map(s => `<option value="${esc(s)}">`).join('')}</datalist></label></div>
+      <label class="f">Qué es<input type="text" id="pdesc" placeholder="Ej.: 3 sobres de Oscuridad Absoluta"></label>
+      <label class="f">Vincular a una carta o producto sellado (opcional, para saber cuánto vale hoy)<input type="search" id="plink" placeholder="Busca por nombre…"></label>
+      <div id="plinkres" class="list"></div><div id="plinked"></div>
+      <button class="btn" id="padd">Guardar compra</button></div>
+    <div class="col"><div class="between"><h2>Compras</h2><div class="row">
+      <label class="pill" style="display:flex;align-items:center;cursor:pointer">Importar CSV<input type="file" id="pimp" accept=".csv,.txt" hidden></label>
+      <button class="pill" id="pexp">Exportar CSV</button></div></div>
+      <div class="list">${P.map(p => { const v = purchaseValue(p, cardPrice, sealed); return `<div class="item"><div class="col" style="flex:1"><b>${esc(p.desc || TYPES[p.type])}</b><span class="muted">${esc(p.date ? p.date.split('-').reverse().join('/') : '')} · ${esc(TYPES[p.type] || p.type)}${p.qty > 1 ? ' · ' + p.qty + ' ud.' : ''}${p.shop ? ' · ' + esc(p.shop) : ''}</span>
+        ${v != null ? `<span style="font-size:13px" class="${p.price && v < p.price ? 'down' : 'up'}">Hoy vale ${eur(v)}</span>` : ''}</div><b>${eur(p.price)}</b><button class="pill" data-delp="${p.id}" aria-label="Borrar compra">✕</button></div>`; }).join('') || '<p class="muted">Aún no has apuntado compras. Puedes importar tu Excel guardándolo como CSV (columnas: fecha, descripción, tipo, cantidad, precio, tienda).</p>'}</div></div></div>`;
+  const pl = document.getElementById('plink'); let t = null;
+  const showLinked = () => { document.getElementById('plinked').innerHTML = linkPick ? `<div class="row card" style="padding:10px"><span style="flex:1">Vinculada: <b>${esc(linkPick.label)}</b></span>${linkPick.card ? '<label class="row muted"><input type="checkbox" id="padcol" checked> Añadir a mi colección</label>' : '<label class="row muted"><input type="checkbox" id="padcol" checked> Añadir a mi sellado</label>'}<button class="pill" id="punlink">✕</button></div>` : '';
+    const u = document.getElementById('punlink'); if (u) u.onclick = () => { linkPick = null; showLinked(); }; };
+  pl.oninput = () => { clearTimeout(t); t = setTimeout(() => {
+    const v = pl.value.trim(); const box = document.getElementById('plinkres');
+    if (v.length < 2) { box.innerHTML = ''; return; }
+    const like = '%' + v + '%';
+    const cs = q(`SELECT c.card_id, ${NAME} name, c.local_id, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.name_es LIKE ? OR c.name_en LIKE ? OR c.name_ja LIKE ? ORDER BY s.release_date DESC LIMIT 8`, [like, like, like]);
+    const ss = q(`SELECT cm_product_id, name, category FROM cm_products WHERE kind='sealed' AND name LIKE ? ORDER BY cm_product_id DESC LIMIT 8`, [like]);
+    box.innerHTML = cs.map(c => `<button class="item pill" style="width:100%;justify-content:flex-start;margin:2px 0" data-lc="${esc(c.card_id)}" data-ll="${esc(c.name + ' · ' + c.set_name + ' · ' + c.local_id)}">${esc(c.name)} · ${esc(c.set_name)} · ${esc(c.local_id)}</button>`).join('')
+      + ss.map(x => `<button class="item pill" style="width:100%;justify-content:flex-start;margin:2px 0" data-ls="${x.cm_product_id}" data-ll="${esc(x.name)}">${esc(x.name)} <span class="muted">· ${esc(x.category.replace('Pokémon ', ''))}</span></button>`).join('');
+    box.querySelectorAll('[data-ll]').forEach(b => b.onclick = () => {
+      if (b.dataset.lc) { const vs = variantsOf([b.dataset.lc])[b.dataset.lc] || []; const vv = vs.slice().sort((a, c) => (vPrice(a) ?? 1e9) - (vPrice(c) ?? 1e9))[0]; linkPick = { card: b.dataset.lc, cm: vv ? vv.cm_product_id : null, variant: vv ? vv.variant : null, label: b.dataset.ll }; document.getElementById('pt').value = 'single'; }
+      else { linkPick = { cm: +b.dataset.ls, label: b.dataset.ll }; const n = b.dataset.ll.toLowerCase(); document.getElementById('pt').value = n.includes('elite trainer') ? 'etb' : n.includes('booster box') || n.includes('display') ? 'caja' : n.includes('tin') ? 'lata' : n.includes('booster') ? 'sobres' : 'otro'; }
+      if (!document.getElementById('pdesc').value) document.getElementById('pdesc').value = b.dataset.ll;
+      box.innerHTML = ''; pl.value = ''; showLinked();
+    });
+  }, 200); };
+  showLinked();
+  document.getElementById('padd').onclick = () => {
+    const price = parseNum(document.getElementById('pp').value), qty = Math.max(1, parseInt(document.getElementById('pq').value, 10) || 1);
+    const desc = document.getElementById('pdesc').value.trim();
+    if (price == null && !desc) { toast('Pon al menos qué es y el precio'); return; }
+    const pu = { id: Date.now(), date: document.getElementById('pd').value, type: document.getElementById('pt').value, desc, qty, price, shop: document.getElementById('ps').value.trim() };
+    if (linkPick) Object.assign(pu, { card: linkPick.card || null, cm: linkPick.cm || null, variant: linkPick.variant || null });
+    const addc = document.getElementById('padcol');
+    if (linkPick && addc && addc.checked) {
+      const unit = price != null ? Math.round(price / qty * 100) / 100 : null;
+      if (linkPick.card) { const cur = COL.cards[linkPick.card]; if (cur) cur.qty = (cur.qty || 1) + qty; else COL.cards[linkPick.card] = { set: linkPick.card.slice(0, linkPick.card.lastIndexOf('-')), cm: linkPick.cm, variant: linkPick.variant, qty, buy: unit }; }
+      else { const cur = COL.sealed[linkPick.cm]; if (cur) { cur.buy = cur.buy && unit ? Math.round(((cur.buy * (cur.qty || 1)) + unit * qty) / ((cur.qty || 1) + qty) * 100) / 100 : (cur.buy || unit); cur.qty = (cur.qty || 1) + qty; } else COL.sealed[linkPick.cm] = { qty, buy: unit }; }
+    }
+    COL.purchases.push(pu); linkPick = null; saveCol(); toast('Compra guardada'); viewExpenses();
+  };
+  $view.querySelectorAll('[data-delp]').forEach(b => b.onclick = () => { if (!confirm('¿Borrar esta compra? (no quita la carta de tu colección)')) return; COL.purchases = COL.purchases.filter(p => p.id !== +b.dataset.delp); saveCol(); viewExpenses(); });
+  document.getElementById('pexp').onclick = () => downloadFile(`9bolsillos-gastos-${new Date().toISOString().slice(0, 10)}.csv`,
+    ['fecha;descripcion;tipo;cantidad;precio;tienda'].concat(P.map(p => [p.date, p.desc, TYPES[p.type] || p.type, p.qty, p.price != null ? String(p.price).replace('.', ',') : '', p.shop].map(csvCell).join(';'))).join('\n'));
+  document.getElementById('pimp').onchange = async ev => {
+    const f = ev.target.files[0]; if (!f) return;
+    const rows = parseCsv(await f.text()); if (rows.length < 2) { alert('El archivo está vacío'); return; }
+    const H = rows[0].map(h => h.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim());
+    const col = (...names) => H.findIndex(h => names.some(n => h.includes(n)));
+    const ci = { date: col('fecha', 'date', 'dia'), desc: col('descrip', 'concepto', 'producto', 'articulo', 'nombre', 'item'), type: col('tipo', 'categoria', 'type'), qty: col('cantidad', 'unidades', 'qty', 'uds'), price: col('precio', 'importe', 'total', 'coste', 'price', 'euros'), shop: col('tienda', 'lugar', 'shop', 'vendedor', 'donde') };
+    if (ci.price < 0 || (ci.date < 0 && ci.desc < 0)) { alert('No encuentro las columnas. La primera fila tiene que tener nombres como: fecha, descripción, tipo, cantidad, precio, tienda.'); return; }
+    const guessType = t => { t = (t || '').toLowerCase(); return /etb|elite/.test(t) ? 'etb' : /caja|display|box/.test(t) ? 'caja' : /lata|tin|colecc/.test(t) ? 'lata' : /sobre|booster|pack/.test(t) ? 'sobres' : /carta|single|suelta/.test(t) ? 'single' : 'otro'; };
+    let n = 0; const base = Date.now();
+    rows.slice(1).forEach((r, i) => {
+      const price = ci.price >= 0 ? parseNum(r[ci.price]) : null, desc = ci.desc >= 0 ? (r[ci.desc] || '').trim() : '';
+      if (price == null && !desc) return;
+      COL.purchases.push({ id: base + i, date: ci.date >= 0 ? parseDate(r[ci.date]) : null, type: guessType(ci.type >= 0 ? r[ci.type] : desc), desc, qty: ci.qty >= 0 ? (parseInt(r[ci.qty], 10) || 1) : 1, price, shop: ci.shop >= 0 ? (r[ci.shop] || '').trim() : '' }); n++;
+    });
+    saveCol(); toast(`${n} compras importadas`); viewExpenses();
+  };
+}
+
+/* ---------- sellado ---------- */
+function viewSealed() {
+  const ids = Object.keys(COL.sealed).map(Number), info = sealedPrices(ids);
+  const hist = {}; historyFor(ids).forEach(h => { if (h.trend_c != null) (hist[h.cm_product_id] ||= []).push([h.day, h.trend_c / 100]); });
+  let cost = 0, val = 0;
+  const rows = ids.map(id => { const e = COL.sealed[id], r = info[id] || {}, now = r.trend ?? r.avg30 ?? r.low ?? null, qty = e.qty || 1;
+    if (now != null) val += now * qty; if (e.buy != null && now != null) cost += e.buy * qty;
+    const mom = r.avg30 && now != null ? (now - r.avg30) / r.avg30 * 100 : null;
+    return { id, e, r, now, qty, mom }; }).sort((a, b) => (b.now || 0) * b.qty - (a.now || 0) * a.qty);
+  const withBuy = rows.filter(x => x.e.buy != null && x.now != null);
+  const gain = withBuy.reduce((t, x) => t + (x.now - x.e.buy) * x.qty, 0);
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center">←</a><h1>Sellado</h1></div>
+    <div class="card col" style="gap:6px"><span class="muted">Valor de tu sellado</span><div class="big">${eur(val)}</div>
+      ${withBuy.length ? `<span class="${gain >= 0 ? 'up' : 'down'}" style="font-weight:600">${gain >= 0 ? '+' : '−'}${eur(Math.abs(gain))} sobre lo que pagaste (${pct(cost ? gain / cost * 100 : 0)})</span>` : '<span class="muted">Pon el precio de compra de cada producto para ver si se revaloriza.</span>'}</div>
+    <label class="f">Añadir producto sellado<input type="search" id="sq2" placeholder="Busca: Pitch Black Elite Trainer Box, Booster Box…"></label><div class="list" id="sres"></div>
+    <div class="list">${rows.map(x => { const g = x.e.buy != null && x.now != null ? (x.now - x.e.buy) * x.qty : null;
+      const verdict = x.mom == null ? '' : x.mom > 5 ? '<span class="up">Subiendo (tendencia por encima de su media de 30 días)</span>' : x.mom < -5 ? '<span class="down">Bajando respecto a su media de 30 días</span>' : 'Estable';
+      return `<div class="item" style="flex-wrap:wrap"><div class="col" style="flex:1;min-width:200px"><b>${esc(x.r.name || ('Producto ' + x.id))}</b><span class="muted">${esc((x.r.category || '').replace('Pokémon ', ''))}${x.r.set_name ? ' · ' + esc(x.r.set_name) : ''}</span>
+        <span style="font-size:13px">Hoy ${eur(x.now)}/ud${x.e.buy != null ? ` · pagaste ${eur(x.e.buy)}/ud` : ''}${g != null ? ` · <span class="${g >= 0 ? 'up' : 'down'}">${g >= 0 ? '+' : '−'}${eur(Math.abs(g))} (${pct((x.now - x.e.buy) / x.e.buy * 100)})</span>` : ''}</span>
+        <span class="muted" style="font-size:12px">${verdict}${(hist[x.id] || []).length > 1 ? ' · ' + (hist[x.id].length) + ' días de historial' : ''}</span></div>
+        <div class="row"><label class="f">Uds<input type="number" min="0" value="${x.qty}" data-sq="${x.id}" style="width:70px"></label><label class="f">€/ud pagado<input type="number" step="0.01" min="0" value="${x.e.buy ?? ''}" data-sb="${x.id}" style="width:100px"></label></div></div>`; }).join('') || '<p class="muted">No tienes producto sellado apuntado.</p>'}</div>
+    <p class="muted">"Subiendo/Bajando" compara el precio de tendencia con su media de 30 días en Cardmarket. Es una pista, no una predicción.</p></div>`;
+  $view.querySelectorAll('[data-sq]').forEach(i => i.onchange = () => { const k = parseInt(i.value, 10); if (!k) delete COL.sealed[i.dataset.sq]; else COL.sealed[i.dataset.sq].qty = k; saveCol(); viewSealed(); });
+  $view.querySelectorAll('[data-sb]').forEach(i => i.onchange = () => { COL.sealed[i.dataset.sb].buy = parseNum(i.value); saveCol(); viewSealed(); });
+  const sq = document.getElementById('sq2'); let t = null;
+  sq.oninput = () => { clearTimeout(t); t = setTimeout(() => {
+    const v = sq.value.trim(), box = document.getElementById('sres'); if (v.length < 2) { box.innerHTML = ''; return; }
+    const rs = q(`SELECT p.cm_product_id, p.name, p.category, pr.trend FROM cm_products p LEFT JOIN prices pr USING(cm_product_id) WHERE p.kind='sealed' AND p.name LIKE ? ORDER BY p.cm_product_id DESC LIMIT 15`, ['%' + v + '%']);
+    box.innerHTML = rs.map(r => `<div class="item"><div class="col" style="flex:1"><b>${esc(r.name)}</b><span class="muted">${esc(r.category.replace('Pokémon ', ''))}</span></div><b>${eur(r.trend)}</b><button class="pill" data-sadd="${r.cm_product_id}">＋</button></div>`).join('') || '<p class="muted">Sin resultados (los nombres de sellado están en inglés).</p>';
+    box.querySelectorAll('[data-sadd]').forEach(b => b.onclick = () => { const id = b.dataset.sadd; if (COL.sealed[id]) COL.sealed[id].qty = (COL.sealed[id].qty || 1) + 1; else COL.sealed[id] = { qty: 1 }; saveCol(); viewSealed(); });
+  }, 200); };
+}
+
+/* ---------- lista de venta ---------- */
+function viewSell() {
+  const ids = Object.keys(COL.sell), vm = variantsOf(ids);
+  const info = {}; if (ids.length) q(`SELECT c.card_id, ${NAME} name, c.name_en, c.local_id, c.rarity, c.image_base, s.card_count, s.lang, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name, s.name_en set_en FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => info[r.card_id] = r);
+  const rows = ids.map(id => { const e = COL.sell[id], vs = vm[id] || [], v = vs.find(x => x.cm_product_id === e.cm && (x.variant || '') === (e.variant || '')) || vs[0], sug = vPrice(v), low = v ? (v.variant === 'reverse' ? v.low_holo : v.low) : null; return { id, e, v, sug, low, i: info[id] || {} }; });
+  const total = rows.reduce((t, r) => t + (r.e.price || 0) * (r.e.qty || 1), 0), sugT = rows.reduce((t, r) => t + (r.sug || 0) * (r.e.qty || 1), 0);
+  const COND = ['MT', 'NM', 'EX', 'GD', 'LP', 'PL', 'PO'], CL = { MT: 'Mint', NM: 'Near Mint', EX: 'Excelente', GD: 'Bueno', LP: 'Ligeramente jugada', PL: 'Jugada', PO: 'Pobre' };
+  const wtext = r => `${r.i.name} ${r.i.local_id}${r.i.card_count ? '/' + r.i.card_count : ''} ${r.i.set_name} - ${r.e.lang} ${r.e.cond}\n\nCarta Pokémon TCG ${r.i.name} (${r.i.set_name}, ${r.i.local_id}${r.i.card_count ? '/' + r.i.card_count : ''}${r.i.rarity ? ', ' + r.i.rarity : ''}${r.v && r.v.variant === 'reverse' ? ', reverse holo' : ''}).\nIdioma: ${r.e.lang}. Estado: ${CL[r.e.cond] || r.e.cond}.\nSale de funda directamente. Envío protegido con top loader.\nPrecio: ${eur(r.e.price)}${r.e.qty > 1 ? ' por unidad (' + r.e.qty + ' disponibles)' : ''}.`;
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center">←</a><h1>Lista de venta</h1></div>
+    <div class="card col" style="gap:6px"><span class="muted">${rows.length} carta${rows.length === 1 ? '' : 's'} a la venta · lo que pides</span><div class="big">${eur(total)}</div><span class="muted">Según la tendencia de Cardmarket valdrían ${eur(sugT)}</span>
+      <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="xcsv">Exportar CSV</button></div></div>
+    <div class="list">${rows.map(r => `<div class="item" style="flex-wrap:wrap;align-items:flex-start">${img(r.i.image_base)}<div class="col" style="flex:1;min-width:180px"><a href="#/card/${encodeURIComponent(r.id)}" style="color:var(--tx)"><b>${esc(r.i.name)} · ${esc(r.i.local_id)}</b></a><span class="muted">${esc(r.i.set_name)}${r.v ? ' · ' + esc(vLabel(r.v)) : ''}</span>
+        <span style="font-size:13px">Sugerido ${eur(r.sug)} · mínimo publicado ${eur(r.low)}</span>
+        <div class="row" style="flex-wrap:wrap;margin-top:6px">
+          <label class="f">Tu precio €<input type="number" step="0.01" min="0" value="${r.e.price ?? ''}" data-sp="${esc(r.id)}" style="width:100px"></label>
+          <label class="f">Uds<input type="number" min="1" value="${r.e.qty || 1}" data-sqty="${esc(r.id)}" style="width:70px"></label>
+          <label class="f">Estado<select data-sc="${esc(r.id)}">${COND.map(c => `<option ${c === r.e.cond ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+          <label class="f">Idioma<select data-sl="${esc(r.id)}">${['ES', 'EN', 'JP', 'FR', 'DE', 'IT', 'PT'].map(c => `<option ${c === r.e.lang ? 'selected' : ''}>${c}</option>`).join('')}</select></label></div>
+        <div class="row" style="flex-wrap:wrap;margin-top:6px"><button class="pill" data-wall="${esc(r.id)}">Copiar texto para Wallapop</button><button class="pill" data-sold="${esc(r.id)}">Vendida</button><button class="pill" data-rm="${esc(r.id)}">Quitar</button></div></div></div>`).join('') || '<p class="muted">No tienes cartas a la venta. Abre una carta de tu colección y pulsa "Poner a la venta".</p>'}</div>
+    <p class="muted">El CSV lleva nombre, set, número, rareza, versión, idioma, estado, cantidad y precio, y lo puedes abrir en Excel. Si me pasas un ejemplo del formato que pide Cardmarket para subir stock, lo adapto exactamente.</p></div>`;
+  const upd = (attr, key, conv) => $view.querySelectorAll(`[${attr}]`).forEach(i => i.onchange = () => { const id = i.getAttribute(attr); COL.sell[id][key] = conv(i.value); saveCol(); viewSell(); });
+  upd('data-sp', 'price', parseNum); upd('data-sqty', 'qty', v => Math.max(1, parseInt(v, 10) || 1)); upd('data-sc', 'cond', v => v); upd('data-sl', 'lang', v => v);
+  $view.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { delete COL.sell[b.dataset.rm]; saveCol(); viewSell(); });
+  $view.querySelectorAll('[data-sold]').forEach(b => b.onclick = () => {
+    const id = b.dataset.sold, e = COL.sell[id], c = COL.cards[id];
+    if (!confirm('¿Marcar como vendida? Se quita de la lista de venta y se descuenta de tu colección.')) return;
+    if (c) { c.qty = (c.qty || 1) - (e.qty || 1); if (c.qty <= 0) delete COL.cards[id]; }
+    delete COL.sell[id]; saveCol(); toast('Vendida'); viewSell();
+  });
+  $view.querySelectorAll('[data-wall]').forEach(b => b.onclick = async () => {
+    const r = rows.find(x => x.id === b.dataset.wall);
+    try { await navigator.clipboard.writeText(wtext(r)); toast('Texto copiado'); } catch (e) { prompt('Copia el texto:', wtext(r)); }
+  });
+  document.getElementById('xcsv').onclick = () => downloadFile(`9bolsillos-venta-${new Date().toISOString().slice(0, 10)}.csv`,
+    ['nombre;nombre_ingles;set;numero;rareza;version;idioma;estado;cantidad;precio;precio_sugerido'].concat(rows.map(r => [r.i.name, r.i.name_en, r.i.set_name, r.i.local_id, r.i.rarity, r.v ? vLabel(r.v) : '', r.e.lang, r.e.cond, r.e.qty, r.e.price != null ? String(r.e.price).replace('.', ',') : '', r.sug != null ? String(r.sug).replace('.', ',') : ''].map(csvCell).join(';'))).join('\n'));
+}
+
+function viewMore() {
+  const n = k => Object.keys(COL[k] || {}).length;
+  $view.innerHTML = `<div class="stack"><h1>Más</h1><div class="list">
+    <a class="item" href="#/expenses"><div class="col" style="flex:1"><b>Gastos</b><span class="muted">${COL.purchases.length} compras apuntadas · gasto por mes y valor actual</span></div>→</a>
+    <a class="item" href="#/sealed"><div class="col" style="flex:1"><b>Sellado</b><span class="muted">${n('sealed')} producto${n('sealed') === 1 ? '' : 's'} · precio de compra frente a precio actual</span></div>→</a>
+    <a class="item" href="#/sell"><div class="col" style="flex:1"><b>Lista de venta</b><span class="muted">${n('sell')} carta${n('sell') === 1 ? '' : 's'} · precio sugerido y exportar</span></div>→</a>
+    <a class="item" href="#/illustrators"><div class="col" style="flex:1"><b>Ilustradores</b><span class="muted">${n('illustrators')} colecciones que sigues</span></div>→</a>
+    <a class="item" href="#/settings"><div class="col" style="flex:1"><b>Ajustes</b><span class="muted">Base de datos, copias de seguridad</span></div>→</a></div></div>`;
 }
 
 let searchQ = '';
@@ -440,18 +679,18 @@ function viewSearch() {
 
 function viewSettings() {
   const days = HAS_HISTORY ? q('SELECT COUNT(DISTINCT day) n FROM history')[0].n : 0;
-  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/" class="pill" style="display:flex;align-items:center">←</a><h1>Ajustes</h1></div>
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center">←</a><h1>Ajustes</h1></div>
     <div class="card col" style="gap:10px"><b>Base de datos</b><span class="muted">Precios del ${PRICE_DATE.split('-').reverse().join('/')} · ${days} día${days === 1 ? '' : 's'} de historial</span>
       <span class="muted">${ONLINE ? 'Se actualiza sola cada vez que abres la app y hay precios nuevos.' : 'Para actualizar: descarga <b>9bolsillos.db</b> de tu repositorio de GitHub (Releases → datos) y cárgala aquí.'}</span>
       <label class="btn sec" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Cargar base de datos nueva<input type="file" id="dbf" accept=".db" hidden></label></div>
-    <div class="card col" style="gap:10px"><b>Tu colección</b><span class="muted">${Object.keys(COL.cards).length} cartas, ${Object.keys(COL.sealed).length} sellados y ${Object.keys(COL.alerts).length} alertas. Se guardan solo en este navegador: haz copias de vez en cuando.</span>
+    <div class="card col" style="gap:10px"><b>Tu colección</b><span class="muted">${Object.keys(COL.cards).length} cartas, ${Object.keys(COL.sealed).length} sellados, ${Object.keys(COL.alerts).length} deseos, ${COL.purchases.length} compras y ${Object.keys(COL.sell).length} a la venta. Se guardan solo en este navegador: haz copias de vez en cuando.</span>
       <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="exp">Exportar copia</button>
       <label class="btn sec" style="display:flex;align-items:center;cursor:pointer">Importar copia<input type="file" id="imp" accept=".json" hidden></label></div></div>
     <div class="card col" style="gap:10px"><b>Datos</b><span class="muted">Cartas y sets: TCGdex (licencia MIT). Precios: guía pública de Cardmarket. Imágenes: TCGdex. 9Bolsillos no está afiliado a Pokémon, Cardmarket ni TCGdex.</span></div>
   </div>`;
   document.getElementById('dbf').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const b = await f.arrayBuffer(); openDb(b); await idbPut('db', b); await idbPut('db_date', PRICE_DATE); toast('Base de datos actualizada'); viewSettings(); } catch (e) { alert('No se pudo cargar: ' + e.message); } };
   document.getElementById('exp').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(COL, null, 1)], { type: 'application/json' })); a.download = `9bolsillos-coleccion-${new Date().toISOString().slice(0, 10)}.json`; a.click(); };
-  document.getElementById('imp').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const c = JSON.parse(await f.text()); if (!c.cards) throw new Error('formato'); if (!confirm('Esto sustituye tu colección actual por la de la copia. ¿Seguir?')) return; COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {} }, c); saveCol(); toast('Colección importada'); viewSettings(); } catch (e) { alert('Archivo no válido'); } };
+  document.getElementById('imp').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const c = JSON.parse(await f.text()); if (!c.cards) throw new Error('formato'); if (!confirm('Esto sustituye tu colección actual por la de la copia. ¿Seguir?')) return; COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {} }, c); saveCol(); toast('Colección importada'); viewSettings(); } catch (e) { alert('Archivo no válido'); } };
 }
 
 function viewWelcome(msg) {
@@ -474,7 +713,7 @@ function route() {
   if (!DB) return;
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   const [, a, b] = h.split('/');
-  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', illustrators: 'sets', illustrator: 'sets', search: 'search', alerts: 'alerts', settings: 'home' }[a || ''] || 'home';
+  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', expenses: 'more', sealed: 'more', sell: 'more' }[a || ''] || 'home';
   $tabs.querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
   window.scrollTo(0, 0);
   try {
@@ -485,7 +724,11 @@ function route() {
     else if (a === 'illustrator') viewIllustrator(b);
     else if (a === 'card') viewCard(b);
     else if (a === 'search') viewSearch();
-    else if (a === 'alerts') viewAlerts();
+    else if (a === 'alerts' || a === 'wish') viewWishlist();
+    else if (a === 'expenses') viewExpenses();
+    else if (a === 'sealed') viewSealed();
+    else if (a === 'sell') viewSell();
+    else if (a === 'more') viewMore();
     else if (a === 'settings') viewSettings();
     else viewHome();
   } catch (e) { console.error(e); $view.innerHTML = `<p class="down">Error: ${esc(e.message)}</p>`; }
