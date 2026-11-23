@@ -18,6 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # Pega aquí el enlace de descarga de la guía de precios de Pokémon (ver README)
   PRICE_GUIDE_URL: "https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_6.json"
   RELEASE_TAG: datos
 
@@ -53,7 +54,7 @@ jobs:
           mkdir -p _site
           cp -r app/* _site/
           cp 9bolsillos.db _site/
-          python3 -c "import sqlite3,json; d=sqlite3.connect('9bolsillos.db').execute(\"SELECT value FROM meta WHERE key='prices_date'\").fetchone()[0]; json.dump({'prices_date': d}, open('_site/version.json','w'))"
+          python3 -c "import sqlite3,json; m=dict(sqlite3.connect('9bolsillos.db').execute('SELECT key,value FROM meta').fetchall()); json.dump({'prices_date': m.get('prices_date'), 'built_at': m.get('built_at','')}, open('_site/version.json','w'))"
           cat _site/version.json
 
       - uses: actions/configure-pages@v5
