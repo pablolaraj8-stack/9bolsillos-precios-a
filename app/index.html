@@ -31,6 +31,18 @@ h2{font-size:17px;margin:0}
 .card{background:var(--bg2);border-radius:14px;padding:14px}
 .big{font-size:38px;font-weight:700;letter-spacing:-.02em}
 .up{color:var(--up)}.down{color:var(--down)}
+.toolbar{display:flex;flex-direction:column;gap:8px;background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:8px}
+.tbrow{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.seg{display:inline-flex;background:var(--bg3);border-radius:10px;padding:3px;gap:2px}
+.seg button{border:0;background:transparent;color:var(--tx3);font:inherit;font-size:14px;font-weight:600;min-height:36px;padding:0 11px;white-space:nowrap;border-radius:8px;cursor:pointer}
+.seg button.on{background:var(--tx);color:var(--bg)}
+.sortsel{flex:0 1 160px;min-width:0}.sortsel select{width:100%;min-height:42px;font-size:14px;padding:0 8px;border-radius:10px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.grabber{width:44px;height:5px;border-radius:3px;background:var(--line);margin:-4px auto 2px}
+.cardnav{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.cardnav .pill{display:flex;align-items:center;font-size:14px;text-decoration:none}
+.pinfo{gap:8px}.tchip{font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--bg3);color:var(--tx2)}
+@media (hover:hover){.grabber{display:none}}
 .pills{display:flex;gap:6px;flex-wrap:wrap}
 .pill{min-height:40px;padding:0 14px;border:none;border-radius:10px;background:var(--bg3);color:var(--tx2);font-weight:600;cursor:pointer}
 .pill.on{background:var(--tx);color:var(--bg)}

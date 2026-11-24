@@ -435,12 +435,13 @@ function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
   };
   return draw;
 }
-function browserControls(kind = 'set') {
-  return `<div class="between" style="flex-wrap:wrap;gap:8px">
-    <div class="pills">${[[false, 'Set básico'], [true, 'Máster set']].map(([k, l]) => `<button class="pill ${MASTER === k ? 'on' : ''}" data-ms="${k}">${l}</button>`).join('')}</div>
-    <label class="row muted" style="gap:8px;font-size:13px">Ordenar<select data-sort="${kind}">${SORTS[kind].map(([k, l]) => `<option value="${k}" ${SORT[kind] === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-    <div class="pills">${[['grid', 'Cuadrícula'], ['album', 'Álbum']].map(([k, l]) => `<button class="pill ${browseMode === k ? 'on' : ''}" data-bm="${k}">${l}</button>`).join('')}</div>
-    ${browseMode === 'grid' ? `<div class="pills">${[['all', 'Todas'], ['have', 'Tengo'], ['miss', 'Me faltan']].map(([k, l]) => `<button class="pill ${browseFilter === k ? 'on' : ''}" data-sf="${k}">${l}</button>`).join('')}</div>` : ''}</div>`;
+// Control segmentado compacto: un grupo de opciones que se ven como una sola pieza
+const seg = (attr, opts, cur) => `<div class="seg" role="group">${opts.map(([k, l]) => `<button class="${String(cur) === String(k) ? 'on' : ''}" data-${attr}="${k}" aria-pressed="${String(cur) === String(k)}">${l}</button>`).join('')}</div>`;
+function browserControls(kind = 'set', extra = '') {
+  return `<div class="toolbar">
+    <div class="tbrow">${kind === 'none' ? '' : seg('ms', [[false, 'Básico'], [true, 'Máster']], MASTER)}${seg('bm', [['grid', 'Cuadrícula'], ['album', 'Álbum']], browseMode)}</div>
+    <div class="tbrow">${browseMode === 'grid' ? seg('sf', [['all', 'Todas'], ['have', 'Tengo'], ['miss', 'Faltan']], browseFilter) : '<span></span>'}
+      ${kind === 'none' ? '' : `<label class="sortsel"><span class="sr">Ordenar</span><select data-sort="${kind}" aria-label="Ordenar">${SORTS[kind].map(([k, l]) => `<option value="${k}" ${SORT[kind] === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`}${extra}</div></div>`;
 }
 function wireControls(rerender) {
   $view.querySelectorAll('[data-bm]').forEach(b => b.onclick = () => { browseMode = b.dataset.bm; rerender(); });
@@ -644,9 +645,7 @@ function viewOrden(name, ord) {
       <button class="pill ${COL.illustrators[name] ? 'on' : ''}" id="fav">${COL.illustrators[name] ? '★ Siguiendo' : '☆ Seguir'}</button></div>
     ${ordenTabs(true)}
     <div class="card col" style="gap:8px" id="ohead"></div>
-    <div class="between" style="flex-wrap:wrap;gap:8px">
-      <div class="pills">${[['grid', 'Cuadrícula'], ['album', 'Álbum']].map(([k, l]) => `<button class="pill ${browseMode === k ? 'on' : ''}" data-bm="${k}">${l}</button>`).join('')}</div>
-      ${browseMode === 'grid' ? `<div class="pills">${[['all', 'Todas'], ['have', 'Tengo'], ['miss', 'Me faltan']].map(([k, l]) => `<button class="pill ${browseFilter === k ? 'on' : ''}" data-sf="${k}">${l}</button>`).join('')}</div>` : ''}</div>
+    ${browserControls('none')}
     <div id="ogrid"></div>
     <p class="muted">Una carta por ilustración, la primera vez que salió en japonés, en orden de lanzamiento. Las reimpresiones con el mismo dibujo están en la nota de cada carta. Fotos de las cartas que no están en la base de datos: CollectHolo.</p></div>`;
   document.getElementById('fav').onclick = () => { if (COL.illustrators[name]) delete COL.illustrators[name]; else COL.illustrators[name] = { since: PRICE_DATE }; saveCol(); viewOrden(name, ord); };
@@ -748,13 +747,75 @@ function extraSection(name) {
   draw();
 }
 
+/* ---------- información del Pokémon (PokéAPI, en español; se guarda para no volver a pedirla) ---------- */
+const POKE = {};
+try { Object.assign(POKE, JSON.parse(localStorage.getItem('poke_cache') || '{}')); } catch (e) {}
+const TIPOS = { normal: 'Normal', fire: 'Fuego', water: 'Agua', grass: 'Planta', electric: 'Eléctrico', ice: 'Hielo', fighting: 'Lucha', poison: 'Veneno', ground: 'Tierra', flying: 'Volador', psychic: 'Psíquico', bug: 'Bicho', rock: 'Roca', ghost: 'Fantasma', dragon: 'Dragón', dark: 'Siniestro', steel: 'Acero', fairy: 'Hada' };
+async function loadPoke(dex) {
+  try {
+    const [sp, pk] = await Promise.all([fetch(`https://pokeapi.co/api/v2/pokemon-species/${dex}`).then(r => r.json()), fetch(`https://pokeapi.co/api/v2/pokemon/${dex}`).then(r => r.json())]);
+    const fl = sp.flavor_text_entries.filter(f => f.language.name === 'es'), fe = sp.flavor_text_entries.filter(f => f.language.name === 'en');
+    POKE[dex] = { gen: ((sp.genera.find(g => g.language.name === 'es') || sp.genera.find(g => g.language.name === 'en') || {}).genus) || '',
+      txt: ((fl[fl.length - 1] || fe[fe.length - 1] || {}).flavor_text || '').replace(/[\f\n\r]+/g, ' ').replace(/\s+/g, ' ').trim(),
+      types: pk.types.map(t => TIPOS[t.type.name] || t.type.name), h: pk.height / 10, w: pk.weight / 10,
+      gn: (sp.generation && sp.generation.name || '').replace('generation-', '').toUpperCase(), leg: sp.is_legendary, myth: sp.is_mythical };
+    try { localStorage.setItem('poke_cache', JSON.stringify(POKE)); } catch (e) {}
+  } catch (e) { POKE[dex] = POKE[dex] || null; }
+}
+function pokeInfoHTML(dex, name) {
+  const p = POKE[dex];
+  if (p === undefined) return `<span class="muted">Cargando información de ${esc(name)}…</span>`;
+  if (!p) return `<span class="muted">No se ha podido cargar la información del Pokémon.</span>`;
+  const n = String(dex).padStart(4, '0');
+  return `<div class="between"><b>Nº ${n}${p.gen ? ' · ' + esc(p.gen) : ''}</b><span class="row" style="gap:6px">${p.types.map(t => `<span class="tchip">${esc(t)}</span>`).join('')}</span></div>
+    ${p.txt ? `<p style="margin:0;line-height:1.45">${esc(p.txt)}</p>` : ''}
+    <span class="muted">${p.h.toLocaleString('es-ES')} m · ${p.w.toLocaleString('es-ES')} kg${p.gn ? ' · Generación ' + esc(p.gn) : ''}${p.leg ? ' · Legendario' : p.myth ? ' · Singular' : ''}</span>`;
+}
+
+/* ---------- gestos en la ficha de una carta: deslizar hacia abajo para volver, a los lados para cambiar de carta ---------- */
+let CARD_NAV = null;
+(() => {
+  let x0 = 0, y0 = 0, mode = '', dx = 0, dy = 0, ok = false;
+  const onCard = () => location.hash.startsWith('#/card/');
+  const reset = anim => { $view.style.transition = anim ? 'transform .2s, opacity .2s' : ''; $view.style.transform = ''; $view.style.opacity = ''; };
+  document.addEventListener('touchstart', e => {
+    ok = onCard() && e.touches.length === 1 && !e.target.closest('input,select,textarea,.chart,svg');
+    if (!ok) return; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; mode = ''; dx = dy = 0; $view.style.transition = '';
+  }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    if (!ok) return; dx = e.touches[0].clientX - x0; dy = e.touches[0].clientY - y0;
+    if (!mode) {
+      if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.3) mode = 'h';
+      else if (dy > 12 && window.scrollY <= 0 && dy > Math.abs(dx) * 1.3) mode = 'v';
+      else if (Math.abs(dy) > 12) { ok = false; return; }
+    }
+    if (mode === 'v') { e.preventDefault(); $view.style.transform = `translateY(${Math.max(0, dy) * 0.55}px)`; $view.style.opacity = String(Math.max(0.4, 1 - dy / 600)); }
+    if (mode === 'h') { e.preventDefault(); const edge = (dx > 0 && !CARD_NAV?.prev) || (dx < 0 && !CARD_NAV?.next); $view.style.transform = `translateX(${dx * (edge ? 0.15 : 0.5)}px)`; }
+  }, { passive: false });
+  document.addEventListener('touchend', () => {
+    if (!ok || !mode) return; ok = false;
+    const stop = ev => { ev.stopPropagation(); ev.preventDefault(); };
+    document.addEventListener('click', stop, { capture: true, once: true }); setTimeout(() => document.removeEventListener('click', stop, { capture: true }), 400);
+    if (mode === 'v' && dy > 110) {
+      $view.style.transition = 'transform .18s, opacity .18s'; $view.style.transform = 'translateY(60vh)'; $view.style.opacity = '0';
+      setTimeout(() => { reset(false); if (history.length > 1) history.back(); else location.hash = '#/set/' + encodeURIComponent(CARD_NAV ? CARD_NAV.set : ''); }, 170);
+    } else if (mode === 'h' && Math.abs(dx) > 70 && CARD_NAV && (dx < 0 ? CARD_NAV.next : CARD_NAV.prev)) {
+      const id = dx < 0 ? CARD_NAV.next : CARD_NAV.prev;
+      $view.style.transition = 'transform .15s, opacity .15s'; $view.style.transform = `translateX(${dx < 0 ? -40 : 40}vw)`; $view.style.opacity = '0';
+      setTimeout(() => { reset(false); location.replace('#/card/' + encodeURIComponent(id)); $view.style.transform = `translateX(${dx < 0 ? 30 : -30}vw)`; $view.style.opacity = '0';
+        requestAnimationFrame(() => requestAnimationFrame(() => reset(true))); }, 140);
+    } else reset(true);
+  });
+})();
 function viewCard(cardId) {
   const c = q(`SELECT c.*, COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local) name, s.region, s.card_count, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE card_id=?`, [cardId])[0];
   if (!c) { $view.innerHTML = '<p>Carta no encontrada.</p>'; return; }
   const vs = variantsOf([cardId])[cardId] || [];
   const e = COL.cards[cardId];
   const order = q(`SELECT card_id FROM cards WHERE set_id=? ORDER BY CAST(local_id AS INTEGER), local_id`, [c.set_id]).map(r => r.card_id);
-  const idx = order.indexOf(cardId), albumPos = idx >= 0 ? `Álbum del set: página ${Math.floor(idx / 9) + 1}, bolsillo ${idx % 9 + 1}` : '';
+  const idx = order.indexOf(cardId), prevId = idx > 0 ? order[idx - 1] : null, nextId = idx >= 0 && idx < order.length - 1 ? order[idx + 1] : null;
+  CARD_NAV = { prev: prevId, next: nextId, set: c.set_id };
+  const albumPos = idx >= 0 ? `Álbum del set: página ${Math.floor(idx / 9) + 1}, bolsillo ${idx % 9 + 1}` : '';
   let sel = ownedVariant(cardId, vs) || vs.slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0] || null;
   const draw = () => {
     const h = sel ? historyFor([sel.cm_product_id]).map(r => [r.day, (isRevHolo(sel) ? r.trend_holo_c : r.trend_c)]).filter(r => r[1] != null).map(r => [r[0], r[1] / 100]) : [];
@@ -766,8 +827,9 @@ function viewCard(cardId) {
     const defLang = c.region === 'asia' ? 'JP' : 'ES';
     const cps = e ? copiesOf(cardId).map(x => Object.assign({ lang: defLang, cond: 'NM' }, x, { lang: x.lang || defLang, cond: x.cond || 'NM' })) : [];
     const sel_ = (name, i, opts, val, extra = '') => `<select data-cp="${i}" data-k="${name}" ${extra}>${opts.map(o => `<option ${o === val ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
-    $view.innerHTML = `<div class="stack">
-      <div class="row"><a href="#/set/${encodeURIComponent(c.set_id)}" class="pill" style="display:flex;align-items:center">←</a><span class="muted">${esc(c.set_name)} · ${esc(c.local_id)}${c.card_count ? '/' + c.card_count : ''}${c.rarity && c.rarity !== 'None' ? ' · ' + esc(c.rarity) : ''}</span></div>
+    $view.innerHTML = `<div class="stack cardpage">
+      <div class="grabber" aria-hidden="true"></div>
+      <div class="row"><a href="#/set/${encodeURIComponent(c.set_id)}" class="pill" id="cback" style="display:flex;align-items:center" aria-label="Volver">←</a><span class="muted">${esc(c.set_name)} · ${esc(c.local_id)}${c.card_count ? '/' + c.card_count : ''}${c.rarity && c.rarity !== 'None' ? ' · ' + esc(c.rarity) : ''}</span></div>
       <div class="cardhero">${cardImg(c, 'high', 'hero', c.name)}
         <h1>${esc(c.name)}</h1>${c.name_ja && c.name_ja !== c.name ? `<span class="muted">${esc(c.name_ja)}</span>` : ''}${c.name_en && c.name_en !== c.name ? `<span class="muted">${esc(c.name_en)}</span>` : ''}
         <div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}${hol ? ' (reverse holo)' : ''}${PRICE_MODE === 'low' ? ' · cualquier idioma y estado' : ''}</span>
@@ -777,6 +839,10 @@ function viewCard(cardId) {
         ${c.illustrator ? `<a href="#/illustrator/${encodeURIComponent(c.illustrator)}" style="font-size:14px">Ilustración: ${esc(c.illustrator)} →</a>` : ''}${albumPos ? `<span class="muted">${albumPos}</span>` : ''}
         <div class="row" style="flex-wrap:wrap;gap:6px;justify-content:center"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG[cardId] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="cimg" accept="image/*" hidden></label>
           <button class="pill" id="curl" style="font-size:13px">Enlace</button>${CUSTOM_IMG[cardId] ? '<button class="pill" id="cdel" style="font-size:13px">Quitar</button>' : ''}</div></div>
+      <div class="cardnav">${prevId ? `<a class="pill" href="#/card/${encodeURIComponent(prevId)}" data-nav="prev" aria-label="Carta anterior">‹ ${esc(order[idx - 1].split('-').pop())}</a>` : '<span></span>'}
+        <span class="muted">${idx + 1} de ${order.length} · desliza para cambiar</span>
+        ${nextId ? `<a class="pill" href="#/card/${encodeURIComponent(nextId)}" data-nav="next" aria-label="Carta siguiente">${esc(order[idx + 1].split('-').pop())} ›</a>` : '<span></span>'}</div>
+      ${c.dex_id ? `<div class="card col pinfo" id="pinfo">${pokeInfoHTML(c.dex_id, c.name)}</div>` : ''}
       ${sel ? `<div class="card"><table><tr><th>Cardmarket</th><th>Mínimo</th><th>Tendencia</th><th>Media 7 d</th><th>Media 30 d</th></tr>
         <tr><td>${hol ? 'Reverse holo' : 'Precio'}</td><td>${eur(hol ? sel.low_holo : sel.low)}</td><td>${eur(hol ? sel.trend_holo : sel.trend)}</td><td>${eur(hol ? sel.avg7_holo : sel.avg7)}</td><td>${eur(hol ? sel.avg30_holo : sel.avg30)}</td></tr></table>
         <span class="muted" style="font-size:12px;display:block;margin-top:8px">El botón de Cardmarket abre esta carta dentro de su set; si hay varias versiones, elige la de la misma rareza.</span></div>` : ''}
@@ -828,6 +894,7 @@ function viewCard(cardId) {
     const us = document.getElementById('unsell'); if (us) us.onclick = () => { delete COL.sell[cardId]; saveCol(); draw(); };
   };
   draw();
+  if (c.dex_id && !POKE[c.dex_id]) loadPoke(c.dex_id).then(() => { const el = document.getElementById('pinfo'); if (el && location.hash.includes(encodeURIComponent(cardId))) el.innerHTML = pokeInfoHTML(c.dex_id, c.name); });
 }
 
 /* ---------- lista de deseos (con precio objetivo = alerta) ---------- */
