@@ -103,7 +103,7 @@ def load_tcgdex(root):
                     local_name = n.get(lang) or next(iter(n.values()), None)
                     cards.append(dict(card_id=f"{set_id}-{local}", set_id=set_id, local=local,
                                       name_es=n.get("es"), name_en=n.get("en"), name_ja=n.get("ja"),
-                                      rarity=first(r"\n\trarity:\s*['\"]([^'\"]+)", ct),
+                                      rarity=(lambda r: None if r in (None, "None") else r)(first(r"\n\trarity:\s*['\"]([^'\"]+)", ct)),  # TCGdex pone "None" si no hay rareza
                                       dex=int(dex) if dex else None, name_local=local_name,
                                       illustrator=first(r"\n\tillustrator:\s*['\"]([^'\"]+)", ct),
                                       image=IMG.format(lang=img_lang, serie=serie_id, set=set_id, local=local),

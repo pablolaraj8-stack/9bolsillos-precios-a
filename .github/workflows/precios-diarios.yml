@@ -6,7 +6,7 @@ on:
   workflow_dispatch:        # botón "Run workflow" para lanzarlo a mano
   push:
     branches: [main]
-    paths: ["app/**", "build_db.py", "update_prices.py", "export_web.py"]
+    paths: ["app/**", "build_db.py", "update_prices.py", "export_web.py", ".github/workflows/**"]
 
 permissions:
   contents: write
@@ -65,6 +65,8 @@ jobs:
         run: |
           mkdir -p _site
           cp -r app/* _site/
+          # Fuerza a los móviles a bajar los archivos nuevos en cada publicación (evita que se queden con la versión vieja en caché)
+          sed -i -E "s/\?v=[0-9a-z]+/?v=${GITHUB_SHA::7}/g" _site/index.html
           python3 export_web.py --db 9bolsillos.db --out _site
           ls -la _site | head -40
           cat _site/version.json

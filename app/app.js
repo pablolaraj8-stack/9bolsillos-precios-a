@@ -472,7 +472,7 @@ function viewSet(setId) {
   $view.querySelectorAll('[data-vt]').forEach(b => b.onclick = () => { COL.setHide ||= {}; const l = COL.setHide[setId] ||= []; const t = b.dataset.vt; const i = l.indexOf(t); if (i >= 0) l.splice(i, 1); else l.push(t); if (!l.length) delete COL.setHide[setId]; saveCol(); viewSet(setId); });
   wireSealedTiles(() => viewSet(setId));
   cardBrowser('set:' + setId, cards, vmap, document.getElementById('grid'), document.getElementById('sethead'),
-    { kind: 'set', sub: c => `${c.local_id}${s.card_count ? '/' + s.card_count : ''} · ${c.rarity || ''}` })();
+    { kind: 'set', sub: c => `${c.local_id}${s.card_count ? '/' + s.card_count : ''}${c.rarity && c.rarity !== 'None' ? ' · ' + c.rarity : ''}` })();
 }
 
 
@@ -762,7 +762,7 @@ function viewCard(cardId) {
     const cps = e ? copiesOf(cardId).map(x => Object.assign({ lang: defLang, cond: 'NM' }, x, { lang: x.lang || defLang, cond: x.cond || 'NM' })) : [];
     const sel_ = (name, i, opts, val, extra = '') => `<select data-cp="${i}" data-k="${name}" ${extra}>${opts.map(o => `<option ${o === val ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
     $view.innerHTML = `<div class="stack">
-      <div class="row"><a href="#/set/${encodeURIComponent(c.set_id)}" class="pill" style="display:flex;align-items:center">←</a><span class="muted">${esc(c.set_name)} · ${esc(c.local_id)}${c.card_count ? '/' + c.card_count : ''} · ${esc(c.rarity || '')}</span></div>
+      <div class="row"><a href="#/set/${encodeURIComponent(c.set_id)}" class="pill" style="display:flex;align-items:center">←</a><span class="muted">${esc(c.set_name)} · ${esc(c.local_id)}${c.card_count ? '/' + c.card_count : ''}${c.rarity && c.rarity !== 'None' ? ' · ' + esc(c.rarity) : ''}</span></div>
       <div class="cardhero">${cardImg(c, 'high', 'hero', c.name)}
         <h1>${esc(c.name)}</h1>${c.name_ja && c.name_ja !== c.name ? `<span class="muted">${esc(c.name_ja)}</span>` : ''}${c.name_en && c.name_en !== c.name ? `<span class="muted">${esc(c.name_en)}</span>` : ''}
         <div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}${hol ? ' (reverse holo)' : ''}${PRICE_MODE === 'low' ? ' · cualquier idioma y estado' : ''}</span>
