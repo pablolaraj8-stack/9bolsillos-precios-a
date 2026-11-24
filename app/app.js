@@ -563,7 +563,10 @@ function viewIllustrators() {
       .forEach(r => { const k = (r.illustrator || '').toLowerCase(); ownBy[k] = (ownBy[k] || 0) + 1; });
   }
   const total = {}; rows.forEach(r => total[r.name.toLowerCase()] = r.n);
-  const item = (name, n) => { const o = ownBy[name.toLowerCase()] || 0; return `<a class="item" href="#/illustrator/${encodeURIComponent(name)}"><div class="col" style="flex:1"><b>${esc(name)} ${COL.illustrators[name] ? '<span class="up">★</span>' : ''}</b><span class="muted">${n} cartas</span>
+  // Si el ilustrador tiene lista "Mi orden", el total y el progreso salen de esa lista (una carta por ilustración)
+  const ordOf = name => { const o = (window.ORDEN || {})[name.toLowerCase()]; return o && o.lang === illLang ? o : null; };
+  const item = (name, n) => { const od = ordOf(name); let o = ownBy[name.toLowerCase()] || 0;
+    if (od) { n = od.cartas.length; o = od.cartas.filter(e => ordenOwned(name, e)).length; } return `<a class="item" href="#/illustrator/${encodeURIComponent(name)}"><div class="col" style="flex:1"><b>${esc(name)} ${COL.illustrators[name] ? '<span class="up">★</span>' : ''}</b><span class="muted">${n} ${ordOf(name) ? 'ilustraciones' : 'cartas'}</span>
     ${o ? `<div class="bar" style="margin-top:4px"><div style="width:${o / n * 100}%"></div></div>` : ''}</div><span class="muted">${o ? o + '/' + n : ''}</span></a>`; };
   const draw = () => {
     const ql = illQuery.toLowerCase();
