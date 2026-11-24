@@ -626,7 +626,8 @@ function ordenData(ord) {
   return { E, vmap };
 }
 function ordenPrice(name, e, vmap) { if (e.id) return COL.cards[e.id] ? vPrice(ownedVariant(e.id, vmap[e.id])) : cheapest(vmap[e.id]); return e.cm ? rPrice(e.pr) : null; }
-function ordenImg(e, cls = '') { return e.id ? cardImg(e, cls ? 'high' : 'low', cls, e.n) : e.img ? `<img ${cls ? `class="${cls}"` : ''} loading="lazy" alt="${esc(e.n)}" src="${esc(ORDEN_IMG + e.img)}" onerror="this.remove()">` : ''; }
+const ordenImgKey = (name, e) => 'orden:' + name.toLowerCase() + ':' + e.o;
+function ordenImg(e, cls = '', name = '') { const mine = name && CUSTOM_IMG[ordenImgKey(name, e)]; if (mine) return `<img ${cls ? `class="${cls}"` : ''} loading="lazy" alt="${esc(e.n)}" src="${esc(mine)}">`; return e.id ? cardImg(e, cls ? 'high' : 'low', cls, e.n) : e.img ? `<img ${cls ? `class="${cls}"` : ''} loading="lazy" alt="${esc(e.n)}" src="${esc(ORDEN_IMG + e.img)}" onerror="this.remove()">` : ''; }
 function viewOrden(name, ord) {
   const { E, vmap } = ordenData(ord);
   $view.innerHTML = `<div class="stack">
@@ -647,7 +648,7 @@ function viewOrden(name, ord) {
   const el = document.getElementById('ogrid'), headEl = document.getElementById('ohead'), akey = 'orden:' + name;
   const tile = (e, i, pocket) => { const has = ordenOwned(name, e), p = ordenPrice(name, e, vmap);
     return `<div class="tile ${has ? 'has' : 'miss'}" data-oi="${i}" title="${pocket ? esc(pocket) : ''}">
-      <div class="img"><span class="fbn">${esc(e.n)}</span>${ordenImg(e)}<span class="vtag">#${e.o}</span>
+      <div class="img"><span class="fbn">${esc(e.n)}</span>${ordenImg(e, '', name)}<span class="vtag">#${e.o}</span>
         <button class="own" data-oown="${i}" aria-label="${has ? 'Quitar de' : 'Añadir a'} mi colección: ${esc(e.n)}">${has ? '✓' : '＋'}</button></div>
       <span class="num">${esc(e.d.slice(0, 4))} · ${esc(e.s)}</span><span class="nm">${esc(e.n)}</span><span class="pr">${eur(p)}</span></div>`; };
   const draw = () => {
@@ -688,16 +689,22 @@ function viewOrden(name, ord) {
 // Ficha de una carta que no está en la base de datos: foto grande, datos y botón de Cardmarket
 function ordenSheet(name, e, vmap, redraw) {
   const p = ordenPrice(name, e, vmap), cmUrl = 'https://www.cardmarket.com/es/Pokemon/Products/Singles?' + (e.cm ? 'idProduct=' + e.cm + '&' : '') + 'searchString=' + encodeURIComponent(e.n);
-  const box = document.createElement('div'); box.className = 'sheet';
+  const box = document.createElement('div'), ik = ordenImgKey(name, e); box.className = 'sheet';
   const paint = () => { const has = ordenOwned(name, e);
     box.innerHTML = `<div class="sheetin" role="dialog" aria-label="${esc(e.n)}"><button class="pill sheetx" aria-label="Cerrar">✕</button>
-      <div class="cardhero">${ordenImg(e, 'hero') || `<div class="hero" style="display:flex;align-items:center;justify-content:center;padding:12px;text-align:center" >${esc(e.n)}<br>Sin foto</div>`}
+      <div class="cardhero">${ordenImg(e, 'hero', name) || `<div class="hero" style="display:flex;align-items:center;justify-content:center;padding:12px;text-align:center" >${esc(e.n)}<br>Sin foto</div>`}
+        <div class="row" style="flex-wrap:wrap;gap:6px;justify-content:center"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG[ik] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="oimg" accept="image/*" hidden></label>
+          <button class="pill" id="ourl" style="font-size:13px">Enlace</button>${CUSTOM_IMG[ik] ? '<button class="pill" id="odel" style="font-size:13px">Quitar</button>' : ''}</div>
         <h1>${esc(e.n)}</h1><span class="muted">#${e.o} · ${esc(e.s)} · ${esc(e.no)} · ${esc(e.d)}</span>
-        <div class="big">${eur(p)}</div>${e.cm ? `<span class="muted">${PRICE_LABEL()}</span>` : '<span class="muted">Sin precio: no está enlazada con Cardmarket</span>'}
+        ${p != null ? `<div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}</span>` : `<span class="muted">${e.cm ? 'Sin precio hoy en Cardmarket' : 'Sin precio: no está enlazada con Cardmarket'}</span>`}
         <a class="btn cmbtn" target="_blank" rel="noopener" href="${esc(cmUrl)}">Ver en Cardmarket ↗</a>
         ${e.note ? `<span class="muted" style="color:var(--down)">${esc(e.note)}</span>` : ''}
         <button class="btn ${has ? 'warn' : ''}" id="stog" style="width:100%;max-width:340px">${has ? 'Quitar de la colección' : '＋ La tengo'}</button></div></div>`;
     box.querySelector('.sheetx').onclick = () => box.remove();
+    const setImg = async u => { CUSTOM_IMG[ik] = u; await idbPut('img:' + ik, u); imgsDirty = true; saveCol(); paint(); redraw(); };
+    box.querySelector('#oimg').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { await setImg(await resizeImage(f)); toast('Foto guardada'); } catch (er) { alert(er.message); } };
+    box.querySelector('#ourl').onclick = async () => { const u = prompt('Pega el enlace de una imagen de la carta (https://…)'); if (u && /^https:\/\//.test(u.trim())) await setImg(u.trim()); };
+    const od = box.querySelector('#odel'); if (od) od.onclick = async () => { delete CUSTOM_IMG[ik]; await idbDel('img:' + ik); imgsDirty = true; saveCol(); paint(); redraw(); };
     box.querySelector('#stog').onclick = () => { ordenToggle(name, e, vmap); paint(); redraw(); }; };
   box.onclick = ev => { if (ev.target === box) box.remove(); };
   paint(); document.body.appendChild(box);
