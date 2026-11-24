@@ -17,7 +17,7 @@ a{color:var(--up);text-decoration:none}
 button,input,select{font:inherit;color:inherit}
 #app{max-width:760px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
 main{flex:1;padding:18px 16px 96px}
-nav.tabs{position:fixed;bottom:0;left:0;right:0;background:#0B0E12;border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom)}
+nav.tabs{position:fixed;bottom:0;left:0;right:0;z-index:10;background:#0B0E12;border-top:1px solid var(--line);display:flex;justify-content:center;padding-bottom:env(safe-area-inset-bottom)}
 nav.tabs .in{display:grid;grid-template-columns:repeat(5,1fr);width:100%;max-width:760px}
 nav.tabs a{min-height:58px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;font-weight:600;color:var(--tx3)}
 nav.tabs a.on{color:var(--up)}
@@ -86,7 +86,14 @@ label.f{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--tx
 .pockets .tile .nm,.pockets .tile .pr{font-size:11px}
 .tile.empty .img{background:#0B0E12;outline:1px solid var(--line)}
 button.pill:disabled{opacity:.35;cursor:default}
-@media (max-width:520px){.hero{width:130px}.big{font-size:32px}}
+.cardhero{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:4px 0 6px}
+.cardhero .hero{width:min(320px,74vw);border-radius:14px;box-shadow:0 12px 36px rgba(0,0,0,.55)}
+.cardhero h1{margin-top:6px}
+.cmbtn{display:flex;align-items:center;justify-content:center;width:100%;max-width:340px;background:var(--blue);color:#fff;text-decoration:none;font-size:16px}
+.sheet{position:fixed;inset:0;z-index:20;background:rgba(5,7,10,.78);display:flex;align-items:flex-end;justify-content:center}
+.sheetin{position:relative;width:100%;max-width:560px;max-height:92vh;overflow:auto;background:var(--bg2);border-radius:18px 18px 0 0;padding:18px 16px calc(24px + env(safe-area-inset-bottom))}
+.sheetx{position:absolute;top:10px;right:10px}
+@media (max-width:520px){.big{font-size:32px}}
 </style>
 </head>
 <body>
@@ -101,6 +108,7 @@ button.pill:disabled{opacity:.35;cursor:default}
 <script src="sql-wasm-inline.js?v=16"></script>
 <script src="supabase.js?v=16"></script>
 <script>/* la configuración se carga siempre fresca (sin caché) */document.write('<script src="config.js?t=' + Date.now() + '"><\/script>');</script>
-<script src="app.js?v=16"></script>
+<script src="orden.js?v=17"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>

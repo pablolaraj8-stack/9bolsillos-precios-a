@@ -526,7 +526,7 @@ function viewSealedItem(id) {
 }
 
 /* ---------- ilustradores ---------- */
-let illLang = 'ja', illQuery = '';
+let illLang = 'ja', illQuery = '', illOrden = true;
 const langCond = l => l === 'all' ? '1=1' : l === 'es' ? "s.lang='es'" : "s.lang='ja'";
 function viewIllustrators() {
   const rows = q(`SELECT c.illustrator name, COUNT(*) n FROM cards c JOIN sets s USING(set_id)
@@ -555,6 +555,8 @@ function viewIllustrators() {
   draw();
 }
 function viewIllustrator(name) {
+  const ord = (window.ORDEN || {})[name.toLowerCase()];
+  if (ord && illLang === ord.lang && illOrden) return viewOrden(name, ord);
   const cards = q(`SELECT c.card_id, c.set_id, c.local_id, ${NAME} name, c.rarity, c.image_base, s.lang, s.release_date,
     (c.name_es IS NULL AND s.lang='es' AND s.release_date >= '2019') no_es,
     COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id)
@@ -565,16 +567,118 @@ function viewIllustrator(name) {
     <div class="row"><a href="#/illustrators" class="pill" style="display:flex;align-items:center">←</a><div class="col" style="flex:1"><h1>${esc(name)}</h1><span class="muted">Ilustrador · ${cards.length} cartas</span></div>
       <button class="pill ${fav ? 'on' : ''}" id="fav">${fav ? '★ Siguiendo' : '☆ Seguir'}</button></div>
     <div class="pills">${[['ja', 'Japonés'], ['es', 'Español / inglés'], ['all', 'Todos los idiomas']].map(([k, l]) => `<button class="pill ${illLang === k ? 'on' : ''}" data-il="${k}">${l}</button>`).join('')}</div>
+    ${ord && illLang === ord.lang ? ordenTabs(false) : ''}
     <div class="card col" style="gap:8px" id="ihead"></div>
     ${browserControls('ill')}
     <div id="grid"></div>
     <p class="muted">Ordenadas por fecha de salida del set. Precios: ${PRICE_LABEL().toLowerCase()}.${illLang === 'ja' ? ' En japonés la lista está incompleta: a la base de datos le faltan muchos sets antiguos (DP, BW, XY…) y el ilustrador de algunas cartas.' : ''}</p></div>`;
   document.getElementById('fav').onclick = () => { if (fav) delete COL.illustrators[name]; else COL.illustrators[name] = { since: PRICE_DATE }; saveCol(); viewIllustrator(name); };
   $view.querySelectorAll('[data-il]').forEach(b => b.onclick = () => { illLang = b.dataset.il; viewIllustrator(name); });
+  $view.querySelectorAll('[data-ord]').forEach(b => b.onclick = () => { illOrden = b.dataset.ord === '1'; viewIllustrator(name); });
   wireControls(() => viewIllustrator(name));
   cardBrowser('ill:' + name + ':' + illLang, cards, vmap, document.getElementById('grid'), document.getElementById('ihead'),
     { kind: 'ill', sub: c => `${c.set_name} · ${c.local_id}${illLang === 'all' ? ' · ' + (c.lang === 'ja' ? 'JP' : c.lang.toUpperCase()) : ''}` })();
   if (HAS_EXTRA && illLang !== 'es') extraSection(name);
+}
+/* ---------- "Mi orden": lista hecha a mano, una carta por ilustración en orden de lanzamiento (app/orden.js) ---------- */
+// Cada carta se guarda donde ya lo hace la app: COL.cards si está en la base de datos, COL.extra si es un producto
+// de Cardmarket, y COL.extra con una clave negativa si no hay forma de enlazarla (cuenta como carta, sin precio).
+const ordenTabs = on => `<div class="pills">${[[1, 'Mi orden · 1 por ilustración'], [0, 'Todas las cartas']].map(([k, l]) => `<button class="pill ${(k === 1) === on ? 'on' : ''}" data-ord="${k}">${l}</button>`).join('')}</div>`;
+const ordenKey = (name, e) => e.id ? 'c:' + e.id : e.cm ? 'x:' + e.cm : 'x:' + (-(ordenHash(name) * 1000 + e.o));
+const ordenHash = s => { let h = 7; for (const ch of s.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) % 9000; return h + 1; };
+function ordenOwned(name, e) { const k = ordenKey(name, e); return k[0] === 'c' ? !!COL.cards[e.id] : !!COL.extra[k.slice(2)]; }
+function ordenToggle(name, e, vmap) {
+  const k = ordenKey(name, e);
+  if (k[0] === 'c') {
+    if (COL.cards[e.id]) { delete COL.cards[e.id]; if (COL.master) delete COL.master[e.id]; }
+    else { const v = (vmap[e.id] || []).slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0]; COL.cards[e.id] = { set: e.set_id, cm: v ? v.cm_product_id : null, variant: v ? v.variant : null, qty: 1 }; }
+  } else { const id = k.slice(2); if (COL.extra[id]) delete COL.extra[id]; else COL.extra[id] = { qty: 1, added: PRICE_DATE, orden: e.n + ' · ' + e.s }; }
+  saveCol();
+}
+function ordenData(ord) {
+  const E = ord.cartas.map(x => Object.assign({}, x));
+  const ids = E.filter(e => e.id).map(e => e.id), cms = E.filter(e => e.cm).map(e => e.cm);
+  const info = {}; if (ids.length) q(`SELECT c.card_id, c.set_id, c.image_base, ${NAME} name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => info[r.card_id] = r);
+  const pr = {}; if (cms.length) q(`SELECT cm_product_id, trend, avg30, low FROM prices WHERE cm_product_id IN (${cms.map(() => '?').join(',')})`, cms).forEach(r => pr[r.cm_product_id] = r);
+  const vmap = variantsOf(ids.filter(id => info[id]));
+  E.forEach(e => { const r = e.id && info[e.id]; if (e.id && !r) delete e.id; if (r) { e.set_id = r.set_id; e.image_base = r.image_base; e.card_id = r.card_id; } e.pr = e.cm ? pr[e.cm] : null; });
+  return { E, vmap };
+}
+function ordenPrice(name, e, vmap) { if (e.id) return COL.cards[e.id] ? vPrice(ownedVariant(e.id, vmap[e.id])) : cheapest(vmap[e.id]); return e.cm ? rPrice(e.pr) : null; }
+function ordenImg(e, cls = '') { return e.id ? cardImg(e, cls ? 'high' : 'low', cls, e.n) : e.img ? `<img ${cls ? `class="${cls}"` : ''} loading="lazy" alt="${esc(e.n)}" src="${esc(ORDEN_IMG + e.img)}" onerror="this.remove()">` : ''; }
+function viewOrden(name, ord) {
+  const { E, vmap } = ordenData(ord);
+  $view.innerHTML = `<div class="stack">
+    <div class="row"><a href="#/illustrators" class="pill" style="display:flex;align-items:center">←</a><div class="col" style="flex:1"><h1>${esc(name)}</h1><span class="muted">${esc(ord.titulo)} · ${E.length} ilustraciones</span></div>
+      <button class="pill ${COL.illustrators[name] ? 'on' : ''}" id="fav">${COL.illustrators[name] ? '★ Siguiendo' : '☆ Seguir'}</button></div>
+    <div class="pills">${[['ja', 'Japonés'], ['es', 'Español / inglés'], ['all', 'Todos los idiomas']].map(([k, l]) => `<button class="pill ${illLang === k ? 'on' : ''}" data-il="${k}">${l}</button>`).join('')}</div>
+    ${ordenTabs(true)}
+    <div class="card col" style="gap:8px" id="ohead"></div>
+    <div class="between" style="flex-wrap:wrap;gap:8px">
+      <div class="pills">${[['grid', 'Cuadrícula'], ['album', 'Álbum']].map(([k, l]) => `<button class="pill ${browseMode === k ? 'on' : ''}" data-bm="${k}">${l}</button>`).join('')}</div>
+      ${browseMode === 'grid' ? `<div class="pills">${[['all', 'Todas'], ['have', 'Tengo'], ['miss', 'Me faltan']].map(([k, l]) => `<button class="pill ${browseFilter === k ? 'on' : ''}" data-sf="${k}">${l}</button>`).join('')}</div>` : ''}</div>
+    <div id="ogrid"></div>
+    <p class="muted">Una carta por ilustración, la primera vez que salió en japonés, en orden de lanzamiento. Las reimpresiones con el mismo dibujo están en la nota de cada carta. Fotos de las cartas que no están en la base de datos: CollectHolo.</p></div>`;
+  document.getElementById('fav').onclick = () => { if (COL.illustrators[name]) delete COL.illustrators[name]; else COL.illustrators[name] = { since: PRICE_DATE }; saveCol(); viewOrden(name, ord); };
+  $view.querySelectorAll('[data-il]').forEach(b => b.onclick = () => { illLang = b.dataset.il; viewIllustrator(name); });
+  $view.querySelectorAll('[data-ord]').forEach(b => b.onclick = () => { illOrden = b.dataset.ord === '1'; viewIllustrator(name); });
+  wireControls(() => viewOrden(name, ord));
+  const el = document.getElementById('ogrid'), headEl = document.getElementById('ohead'), akey = 'orden:' + name;
+  const tile = (e, i, pocket) => { const has = ordenOwned(name, e), p = ordenPrice(name, e, vmap);
+    return `<div class="tile ${has ? 'has' : 'miss'}" data-oi="${i}" title="${pocket ? esc(pocket) : ''}">
+      <div class="img"><span class="fbn">${esc(e.n)}</span>${ordenImg(e)}<span class="vtag">#${e.o}</span>
+        <button class="own" data-oown="${i}" aria-label="${has ? 'Quitar de' : 'Añadir a'} mi colección: ${esc(e.n)}">${has ? '✓' : '＋'}</button></div>
+      <span class="num">${esc(e.d.slice(0, 4))} · ${esc(e.s)}</span><span class="nm">${esc(e.n)}</span><span class="pr">${eur(p)}</span></div>`; };
+  const draw = () => {
+    let have = 0, val = 0, miss = 0;
+    E.forEach(e => { const p = ordenPrice(name, e, vmap) || 0; if (ordenOwned(name, e)) { have++; val += e.id ? cardValue(e.id, p) : p * ((COL.extra[ordenKey(name, e).slice(2)] || {}).qty || 1); } else miss += p; });
+    const pc = have / E.length * 100, next = E.find(e => !ordenOwned(name, e));
+    headEl.innerHTML = `<div class="between"><b>Tienes ${have} de ${E.length}</b><b class="up" style="font-size:22px">${Math.round(pc)} %</b></div>
+      <div class="bar"><div style="width:${pc}%"></div></div>
+      <div class="between muted" style="flex-wrap:wrap"><span>Tu parte vale <b style="color:var(--tx)">${eur(val)}</b></span><span>Lo que falta (con precio): <b style="color:var(--tx)">${eur(miss)}</b></span></div>
+      ${next ? `<span class="muted">Siguiente en tu orden: <b style="color:var(--tx)">#${next.o} ${esc(next.n)}</b> · ${esc(next.s)} (${esc(next.d.slice(0, 4))})</span>` : ''}`;
+    if (browseMode === 'album') {
+      const pages = Math.ceil(E.length / 9), per = window.innerWidth >= 760 ? 2 : 1;
+      let pg = albumPage[akey] || 0; pg = Math.min(pg - pg % per, (pages - 1) - (pages - 1) % per); albumPage[akey] = pg;
+      let html = `<div class="between" style="margin-bottom:10px"><button class="pill" data-pg="-1" ${pg === 0 ? 'disabled' : ''} aria-label="Página anterior">←</button>
+        <b>Página ${pg + 1}${per === 2 && pg + 2 <= pages ? '–' + (pg + 2) : ''} de ${pages}</b>
+        <button class="pill" data-pg="1" ${pg + per >= pages ? 'disabled' : ''} aria-label="Página siguiente">→</button></div><div class="spread">`;
+      for (let k = pg; k < Math.min(pg + per, pages); k++) {
+        html += `<div class="page"><div class="pgnum">Página ${k + 1}</div><div class="pockets">`;
+        for (let i = 0; i < 9; i++) { const idx = k * 9 + i, e = E[idx]; html += e ? tile(e, idx, `Página ${k + 1}, bolsillo ${i + 1}`) : '<div class="tile empty"><div class="img"></div></div>'; }
+        html += '</div></div>';
+      }
+      el.innerHTML = html + '</div>';
+      el.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => { albumPage[akey] = Math.max(0, (albumPage[akey] || 0) + (+b.dataset.pg) * per); draw(); });
+    } else {
+      const idx = E.map((e, i) => i).filter(i => browseFilter === 'all' || (browseFilter === 'have') === ordenOwned(name, E[i]));
+      const years = {}; idx.forEach(i => (years[E[i].d.slice(0, 4)] ||= []).push(i));
+      el.innerHTML = Object.entries(years).map(([y, is]) => { const tot = E.filter(e => e.d.startsWith(y)), got = tot.filter(e => ordenOwned(name, e)).length;
+        return `<div class="between" style="margin:14px 0 8px"><h2>${esc(y)}</h2><span class="muted">${got}/${tot.length}</span></div><div class="grid">${is.map(i => tile(E[i], i)).join('')}</div>`; }).join('')
+        || '<p class="muted">Nada que mostrar con este filtro.</p>';
+    }
+    el.querySelectorAll('[data-oown]').forEach(b => b.onclick = ev => { ev.stopPropagation(); ordenToggle(name, E[+b.dataset.oown], vmap); draw(); });
+    el.querySelectorAll('[data-oi]').forEach(t => t.onclick = () => { const e = E[+t.dataset.oi]; if (e.id) location.hash = '#/card/' + encodeURIComponent(e.id); else ordenSheet(name, e, vmap, draw); });
+  };
+  draw();
+}
+// Ficha de una carta que no está en la base de datos: foto grande, datos y botón de Cardmarket
+function ordenSheet(name, e, vmap, redraw) {
+  const p = ordenPrice(name, e, vmap), cmUrl = 'https://www.cardmarket.com/es/Pokemon/Products/Singles?' + (e.cm ? 'idProduct=' + e.cm + '&' : '') + 'searchString=' + encodeURIComponent(e.n);
+  const box = document.createElement('div'); box.className = 'sheet';
+  const paint = () => { const has = ordenOwned(name, e);
+    box.innerHTML = `<div class="sheetin" role="dialog" aria-label="${esc(e.n)}"><button class="pill sheetx" aria-label="Cerrar">✕</button>
+      <div class="cardhero">${ordenImg(e, 'hero') || `<div class="hero" style="display:flex;align-items:center;justify-content:center;padding:12px;text-align:center" >${esc(e.n)}<br>Sin foto</div>`}
+        <h1>${esc(e.n)}</h1><span class="muted">#${e.o} · ${esc(e.s)} · ${esc(e.no)} · ${esc(e.d)}</span>
+        <div class="big">${eur(p)}</div>${e.cm ? `<span class="muted">${PRICE_LABEL()}</span>` : '<span class="muted">Sin precio: no está enlazada con Cardmarket</span>'}
+        <a class="btn cmbtn" target="_blank" rel="noopener" href="${esc(cmUrl)}">Ver en Cardmarket ↗</a>
+        ${e.note ? `<span class="muted" style="color:var(--down)">${esc(e.note)}</span>` : ''}
+        <button class="btn ${has ? 'warn' : ''}" id="stog" style="width:100%;max-width:340px">${has ? 'Quitar de la colección' : '＋ La tengo'}</button></div></div>`;
+    box.querySelector('.sheetx').onclick = () => box.remove();
+    box.querySelector('#stog').onclick = () => { ordenToggle(name, e, vmap); paint(); redraw(); }; };
+  box.onclick = ev => { if (ev.target === box) box.remove(); };
+  paint(); document.body.appendChild(box);
+  window.addEventListener('hashchange', () => box.remove(), { once: true });
 }
 // Cartas que Cardmarket vende pero que no están en la base de datos (sobre todo japonesas antiguas).
 // Se emparejan con su versión inglesa por nombre + ataques, así que conviene revisarlas.
@@ -626,19 +730,18 @@ function viewCard(cardId) {
     const sel_ = (name, i, opts, val, extra = '') => `<select data-cp="${i}" data-k="${name}" ${extra}>${opts.map(o => `<option ${o === val ? 'selected' : ''}>${o}</option>`).join('')}</select>`;
     $view.innerHTML = `<div class="stack">
       <div class="row"><a href="#/set/${encodeURIComponent(c.set_id)}" class="pill" style="display:flex;align-items:center">←</a><span class="muted">${esc(c.set_name)} · ${esc(c.local_id)}${c.card_count ? '/' + c.card_count : ''} · ${esc(c.rarity || '')}</span></div>
-      <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
-        <div class="col" style="gap:8px;align-items:flex-start">${cardImg(c, 'high', 'hero', c.name)}
-          <div class="row" style="flex-wrap:wrap;gap:6px;max-width:180px"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG[cardId] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="cimg" accept="image/*" hidden></label>
+      <div class="cardhero">${cardImg(c, 'high', 'hero', c.name)}
+        <h1>${esc(c.name)}</h1>${c.name_ja && c.name_ja !== c.name ? `<span class="muted">${esc(c.name_ja)}</span>` : ''}${c.name_en && c.name_en !== c.name ? `<span class="muted">${esc(c.name_en)}</span>` : ''}
+        <div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}${hol ? ' (reverse holo)' : ''}${PRICE_MODE === 'low' ? ' · cualquier idioma y estado' : ''}</span>
+        ${sel && sel.ambiguous ? '<span class="down" style="font-size:13px">Ojo: este precio podría corresponder a otra versión de la carta.</span>' : ''}
+        ${sel ? `<a class="btn cmbtn" target="_blank" rel="noopener" href="${cmLink(sel, c)}">Ver en Cardmarket ↗</a>` : ''}
+        ${vs.length > 1 ? `<label class="f" style="width:100%;max-width:340px;text-align:left">Versión<select id="vsel">${vs.map((v, i) => `<option value="${i}" ${v === sel ? 'selected' : ''}>${esc(vLabel(v))} — ${eur(vPrice(v))}</option>`).join('')}</select></label>` : `<span class="muted">${sel ? esc(vLabel(sel)) : 'Sin precio en Cardmarket'}</span>`}
+        ${c.illustrator ? `<a href="#/illustrator/${encodeURIComponent(c.illustrator)}" style="font-size:14px">Ilustración: ${esc(c.illustrator)} →</a>` : ''}${albumPos ? `<span class="muted">${albumPos}</span>` : ''}
+        <div class="row" style="flex-wrap:wrap;gap:6px;justify-content:center"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG[cardId] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="cimg" accept="image/*" hidden></label>
           <button class="pill" id="curl" style="font-size:13px">Enlace</button>${CUSTOM_IMG[cardId] ? '<button class="pill" id="cdel" style="font-size:13px">Quitar</button>' : ''}</div></div>
-        <div class="col" style="gap:8px;flex:1;min-width:200px">
-          <h1>${esc(c.name)}</h1>${c.illustrator ? `<a href="#/illustrator/${encodeURIComponent(c.illustrator)}" style="font-size:14px">Ilustración: ${esc(c.illustrator)} →</a>` : ''}${albumPos ? `<span class="muted">${albumPos}</span>` : ''}${c.name_en && c.name_en !== c.name ? `<span class="muted">${esc(c.name_en)}</span>` : ''}${c.name_ja && c.name_ja !== c.name ? `<span class="muted">${esc(c.name_ja)}</span>` : ''}
-          <div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}${hol ? ' (reverse holo)' : ''}${PRICE_MODE === 'low' ? ' · cualquier idioma y estado' : ''}</span>
-          ${sel && sel.ambiguous ? '<span class="down" style="font-size:13px">Ojo: este precio podría corresponder a otra versión de la carta.</span>' : ''}
-          ${vs.length > 1 ? `<label class="f">Versión<select id="vsel">${vs.map((v, i) => `<option value="${i}" ${v === sel ? 'selected' : ''}>${esc(vLabel(v))} — ${eur(vPrice(v))}</option>`).join('')}</select></label>` : `<span class="muted">${sel ? esc(vLabel(sel)) : 'Sin precio en Cardmarket'}</span>`}
-        </div></div>
       ${sel ? `<div class="card"><table><tr><th>Cardmarket</th><th>Mínimo</th><th>Tendencia</th><th>Media 7 d</th><th>Media 30 d</th></tr>
         <tr><td>${hol ? 'Reverse holo' : 'Precio'}</td><td>${eur(hol ? sel.low_holo : sel.low)}</td><td>${eur(hol ? sel.trend_holo : sel.trend)}</td><td>${eur(hol ? sel.avg7_holo : sel.avg7)}</td><td>${eur(hol ? sel.avg30_holo : sel.avg30)}</td></tr></table>
-        <a style="display:inline-block;margin-top:10px" target="_blank" rel="noopener" href="${cmLink(sel, c)}">Ver en Cardmarket ↗</a><span class="muted" style="font-size:12px;display:block">Abre esta carta dentro de su set; si hay varias versiones, elige la de la misma rareza.</span></div>` : ''}
+        <span class="muted" style="font-size:12px;display:block;margin-top:8px">El botón de Cardmarket abre esta carta dentro de su set; si hay varias versiones, elige la de la misma rareza.</span></div>` : ''}
       <div class="col" style="gap:8px"><h2>Evolución del precio</h2>${chartSvg(h, 700, 140)}</div>
       ${uv.length > 1 ? `<div class="card col" style="gap:8px"><b>Versiones para el máster set</b>${uv.map((v, i) => { const hv = (COL.hide || {})[cardId + '|' + vkey(v)]; return `<div class="row" style="min-height:40px;${hv ? 'opacity:.45' : ''}"><label class="row" style="flex:1;cursor:pointer"><input type="checkbox" data-mv="${i}" ${ok.has(vkey(v)) ? 'checked' : ''} style="width:20px;height:20px;accent-color:#3DDC97"><span style="flex:1">${esc(v ? vLabel(v) : 'Estándar')}${v && v.notEs ? ' <span class="muted">(no sale en español)</span>' : ''}${v && v.stamp ? ' <span class="muted">(promo con sello, fuera del máster set)</span>' : ''}</span><b>${eur(vPrice(v))}</b></label><button class="pill" style="font-size:12px;min-height:34px" data-hv="${i}">${hv ? 'Mostrar' : 'No existe'}</button></div>`; }).join('')}</div>` : ''}
       <button class="pill" id="hidecard" style="align-self:flex-start;font-size:13px">${(COL.hide || {})[cardId] ? 'Volver a mostrar esta carta en el set' : 'Esta carta no existe en español: ocultarla del set'}</button>
