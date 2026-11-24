@@ -79,7 +79,13 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:8px 6px;b
 .toast{position:fixed;left:50%;bottom:80px;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;z-index:9}
 label.f{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--tx2)}
 .center{min-height:70vh;display:flex;flex-direction:column;justify-content:center;gap:16px;max-width:480px;margin:0 auto}
-.spread{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.pgnav{margin-bottom:10px}.pgtxt{font-weight:700}
+.spread.fromR{animation:pgR .22s ease-out}.spread.fromL{animation:pgL .22s ease-out}
+@keyframes pgR{from{transform:translateX(28px);opacity:.3}to{transform:none;opacity:1}}
+@keyframes pgL{from{transform:translateX(-28px);opacity:.3}to{transform:none;opacity:1}}
+@media (hover:none) and (pointer:coarse){.pgbtn{display:none}.pgnav{justify-content:center}.pgtxt{font-size:13px;color:var(--tx3);font-weight:600}.pgtxt::after{content:" · desliza para pasar"}}
+@media (prefers-reduced-motion:reduce){.spread.fromR,.spread.fromL{animation:none}}
+.spread{touch-action:pan-y;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
 .page{background:#12161C;border:1px solid var(--line);border-radius:12px;padding:12px}
 .pgnum{font-size:12px;color:var(--tx3);margin-bottom:8px;font-weight:600}
 .pockets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
@@ -108,7 +114,7 @@ button.pill:disabled{opacity:.35;cursor:default}
 <script src="sql-wasm-inline.js?v=16"></script>
 <script src="supabase.js?v=16"></script>
 <script>/* la configuración se carga siempre fresca (sin caché) */document.write('<script src="config.js?t=' + Date.now() + '"><\/script>');</script>
-<script src="orden.js?v=17"></script>
-<script src="app.js?v=17"></script>
+<script src="orden.js?v=18"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

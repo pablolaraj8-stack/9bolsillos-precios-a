@@ -316,7 +316,26 @@ let browseFilter = 'all', browseMode = 'grid';
 const SORT = { set: 'num', ill: 'old' };
 const SORTS = { set: [['num', 'Número'], ['price_desc', 'Precio: mayor primero'], ['price_asc', 'Precio: menor primero'], ['name', 'Nombre']],
   ill: [['old', 'Lanzamiento: antiguas primero'], ['new', 'Lanzamiento: recientes primero'], ['price_desc', 'Precio: mayor primero'], ['price_asc', 'Precio: menor primero'], ['name', 'Nombre']] };
-const albumPage = {};
+const albumPage = {}, albumAnim = {};
+// Pasar páginas del álbum deslizando el dedo: a la izquierda avanza y a la derecha vuelve, como una carpeta.
+// Las flechas del teclado también pasan página en el ordenador.
+let pageTurn = null;
+function swipePages(el, turn) {
+  pageTurn = turn;
+  let x0 = null, y0 = 0, t0 = 0;
+  el.ontouchstart = e => { if (e.touches.length !== 1) { x0 = null; return; } x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now(); };
+  el.ontouchend = e => {
+    if (x0 == null) return; const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0; x0 = null;
+    if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.4 || Date.now() - t0 > 800) return;
+    const stop = ev => { ev.stopPropagation(); ev.preventDefault(); };   // que el gesto no abra la carta que tenías debajo
+    el.addEventListener('click', stop, { capture: true, once: true }); setTimeout(() => el.removeEventListener('click', stop, { capture: true }), 400);
+    turn(dx < 0 ? 1 : -1);
+  };
+}
+document.addEventListener('keydown', e => {
+  if (!pageTurn || !document.querySelector('.spread') || /INPUT|SELECT|TEXTAREA/.test((e.target || {}).tagName || '')) return;
+  if (e.key === 'ArrowRight') pageTurn(1); else if (e.key === 'ArrowLeft') pageTurn(-1);
+});
 /* ---------- máster set: cada versión (normal, reverse, 1ª edición…) cuenta aparte ---------- */
 let MASTER = false;
 // Mostrar o no lo que no existe en español (cartas solo inglesas, versiones de otros idiomas, lo que ocultes a mano)
@@ -378,16 +397,18 @@ function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
     if (browseMode === 'album') {
       const pages = Math.max(1, Math.ceil(E.length / 9)), per = perSpread(), akey = key + (MASTER ? ':m' : '');
       let pg = albumPage[akey] || 0; pg = Math.min(pg - pg % per, (pages - 1) - (pages - 1) % per); albumPage[akey] = pg;
-      let html = `<div class="between" style="margin-bottom:10px"><button class="pill" data-pg="-1" ${pg === 0 ? 'disabled' : ''} aria-label="Página anterior">←</button>
-        <b>Página ${pg + 1}${per === 2 && pg + 2 <= pages ? '–' + (pg + 2) : ''} de ${pages}</b>
-        <button class="pill" data-pg="1" ${pg + per >= pages ? 'disabled' : ''} aria-label="Página siguiente">→</button></div><div class="spread">`;
+      let html = `<div class="between pgnav"><button class="pill pgbtn" data-pg="-1" ${pg === 0 ? 'disabled' : ''} aria-label="Página anterior">←</button>
+        <span class="pgtxt">Página ${pg + 1}${per === 2 && pg + 2 <= pages ? '–' + (pg + 2) : ''} de ${pages}</span>
+        <button class="pill pgbtn" data-pg="1" ${pg + per >= pages ? 'disabled' : ''} aria-label="Página siguiente">→</button></div><div class="spread ${albumAnim[akey] || ''}">`;
       for (let k = pg; k < Math.min(pg + per, pages); k++) {
         html += `<div class="page"><div class="pgnum">Página ${k + 1}</div><div class="pockets">`;
         for (let i = 0; i < 9; i++) { const idx = k * 9 + i, e = E[idx]; html += e ? tile(e, idx, `Página ${k + 1}, bolsillo ${i + 1}`) : '<div class="tile empty"><div class="img"></div></div>'; }
         html += '</div></div>';
       }
       el.innerHTML = html + '</div>';
-      el.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => { albumPage[akey] = Math.max(0, (albumPage[akey] || 0) + (+b.dataset.pg) * per); draw(); });
+      const turn = d => { const nx = (albumPage[akey] || 0) + d * per; if (nx < 0 || nx >= pages) return; albumPage[akey] = nx; albumAnim[akey] = d > 0 ? 'fromR' : 'fromL'; draw(); albumAnim[akey] = ''; };
+      el.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => turn(+b.dataset.pg));
+      swipePages(el, turn);
     } else {
       const idx = E.map((e, i) => i).filter(i => browseFilter === 'all' || (browseFilter === 'have' ? owns(E[i]) : !owns(E[i])));
       el.innerHTML = `<div class="grid">${idx.map(i => tile(E[i], i)).join('')}</div>` + (idx.length ? '' : '<p class="muted">Nada que mostrar con este filtro.</p>');
@@ -640,16 +661,18 @@ function viewOrden(name, ord) {
     if (browseMode === 'album') {
       const pages = Math.ceil(E.length / 9), per = window.innerWidth >= 760 ? 2 : 1;
       let pg = albumPage[akey] || 0; pg = Math.min(pg - pg % per, (pages - 1) - (pages - 1) % per); albumPage[akey] = pg;
-      let html = `<div class="between" style="margin-bottom:10px"><button class="pill" data-pg="-1" ${pg === 0 ? 'disabled' : ''} aria-label="Página anterior">←</button>
-        <b>Página ${pg + 1}${per === 2 && pg + 2 <= pages ? '–' + (pg + 2) : ''} de ${pages}</b>
-        <button class="pill" data-pg="1" ${pg + per >= pages ? 'disabled' : ''} aria-label="Página siguiente">→</button></div><div class="spread">`;
+      let html = `<div class="between pgnav"><button class="pill pgbtn" data-pg="-1" ${pg === 0 ? 'disabled' : ''} aria-label="Página anterior">←</button>
+        <span class="pgtxt">Página ${pg + 1}${per === 2 && pg + 2 <= pages ? '–' + (pg + 2) : ''} de ${pages}</span>
+        <button class="pill pgbtn" data-pg="1" ${pg + per >= pages ? 'disabled' : ''} aria-label="Página siguiente">→</button></div><div class="spread ${albumAnim[akey] || ''}">`;
       for (let k = pg; k < Math.min(pg + per, pages); k++) {
         html += `<div class="page"><div class="pgnum">Página ${k + 1}</div><div class="pockets">`;
         for (let i = 0; i < 9; i++) { const idx = k * 9 + i, e = E[idx]; html += e ? tile(e, idx, `Página ${k + 1}, bolsillo ${i + 1}`) : '<div class="tile empty"><div class="img"></div></div>'; }
         html += '</div></div>';
       }
       el.innerHTML = html + '</div>';
-      el.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => { albumPage[akey] = Math.max(0, (albumPage[akey] || 0) + (+b.dataset.pg) * per); draw(); });
+      const turn = d => { const nx = (albumPage[akey] || 0) + d * per; if (nx < 0 || nx >= pages) return; albumPage[akey] = nx; albumAnim[akey] = d > 0 ? 'fromR' : 'fromL'; draw(); albumAnim[akey] = ''; };
+      el.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => turn(+b.dataset.pg));
+      swipePages(el, turn);
     } else {
       const idx = E.map((e, i) => i).filter(i => browseFilter === 'all' || (browseFilter === 'have') === ordenOwned(name, E[i]));
       const years = {}; idx.forEach(i => (years[E[i].d.slice(0, 4)] ||= []).push(i));
