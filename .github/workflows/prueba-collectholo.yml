@@ -1,0 +1,17 @@
+# Prueba manual: ¿puede GitHub leer los precios por idioma y estado de CollectHolo?
+name: Prueba CollectHolo
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  prueba:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pedir precios de prueba
+        run: |
+          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
+          for u in "api/cardmarket-price-history?cardId=me6-117&days=3&lang=es" "api/cardmarket-price-history?cardId=sv2a_ja-94&days=3&lang=ja&isJa=1" "api/sets?lang=es"; do
+            code=$(curl -s -o out.txt -w "%{http_code}" -A "$UA" -H "Accept: application/json" "https://www.collectholo.com/$u")
+            echo "== $u -> HTTP $code"; head -c 300 out.txt; echo
+          done
