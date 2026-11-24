@@ -287,14 +287,17 @@ const LANGS = { es: 'Español / inglés', ja: 'Japonés', ko: 'Coreano', 'zh-tw'
 const NAME = 'COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local)';
 
 let setsFilter = 'es', setsQuery = '';
+const SETS_LANG = 'es', ILL_LANG = 'ja';
 function viewSets() {
+  if (setsFilter !== 'mine') setsFilter = 'es';
   const rows = q(`SELECT s.set_id, s.lang, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) name, s.serie, s.release_date,
     (SELECT COUNT(*) FROM cards c WHERE c.set_id = s.set_id) n, (SELECT image_base FROM cards c WHERE c.set_id = s.set_id LIMIT 1) ib
     FROM sets s WHERE n > 0 ORDER BY s.release_date DESC, s.set_id`);
   const ownCount = {}; Object.values(COL.cards).forEach(e => ownCount[e.set] = (ownCount[e.set] || 0) + 1);
   const draw = () => {
     const ql = setsQuery.toLowerCase();
-    const okLang = r => setsFilter === 'mine' ? ownCount[r.set_id] : setsFilter === 'otros' ? !['es', 'ja'].includes(r.lang) : r.lang === setsFilter;
+    // Colecciones por set: solo en español (SETS_LANG). Los ilustradores van en japonés (ILL_LANG).
+    const okLang = r => r.lang === SETS_LANG && (setsFilter !== 'mine' || ownCount[r.set_id]);
     const list = rows.filter(r => okLang(r) && (!ql || (r.name || '').toLowerCase().includes(ql) || (r.serie || '').toLowerCase().includes(ql)));
     document.getElementById('setlist').innerHTML = list.map(r => {
       const o = ownCount[r.set_id] || 0, p = Math.round(o / r.n * 100);
@@ -304,7 +307,7 @@ function viewSets() {
   };
   $view.innerHTML = `<div class="stack"><div class="between"><h1>Colección</h1><a class="pill" style="display:flex;align-items:center" href="#/illustrators">Ilustradores →</a></div>
     <input type="search" id="sq" placeholder="Buscar set…" value="${esc(setsQuery)}">
-    <div class="pills">${[['es', 'Español / inglés'], ['ja', 'Japonés'], ['otros', 'Otros idiomas'], ['mine', 'Mis sets']].map(([k, l]) => `<button class="pill ${setsFilter === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('')}</div>
+    <div class="pills">${[['es', 'Todos los sets'], ['mine', 'Mis sets']].map(([k, l]) => `<button class="pill ${setsFilter === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('')}</div>
     <div class="list" id="setlist"></div></div>`;
   document.getElementById('sq').oninput = e => { setsQuery = e.target.value; draw(); };
   $view.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { setsFilter = b.dataset.f; viewSets(); });
@@ -547,7 +550,7 @@ function viewSealedItem(id) {
 }
 
 /* ---------- ilustradores ---------- */
-let illLang = 'ja', illQuery = '', illOrden = true;
+let illLang = ILL_LANG, illQuery = '', illOrden = true;
 const langCond = l => l === 'all' ? '1=1' : l === 'es' ? "s.lang='es'" : "s.lang='ja'";
 function viewIllustrators() {
   const rows = q(`SELECT c.illustrator name, COUNT(*) n FROM cards c JOIN sets s USING(set_id)
@@ -568,7 +571,6 @@ function viewIllustrators() {
   };
   $view.innerHTML = `<div class="stack"><div class="row"><a href="#/sets" class="pill" style="display:flex;align-items:center">←</a><h1>Ilustradores</h1></div>
     ${favs.length ? `<div class="col"><h2>Mis colecciones</h2><div class="list">${favs.map(f => item(f, total[f.toLowerCase()] || 0)).join('')}</div></div>` : '<div class="card muted">Entra en un ilustrador y pulsa "Seguir" para tenerlo aquí como colección.</div>'}
-    <div class="pills">${[['ja', 'Japonés'], ['es', 'Español / inglés'], ['all', 'Todos los idiomas']].map(([k, l]) => `<button class="pill ${illLang === k ? 'on' : ''}" data-il="${k}">${l}</button>`).join('')}</div>
     <input type="search" id="iq" placeholder="Buscar ilustrador…" value="${esc(illQuery)}">
     <div class="list" id="ills"></div></div>`;
   $view.querySelectorAll('[data-il]').forEach(b => b.onclick = () => { illLang = b.dataset.il; viewIllustrators(); });
@@ -587,7 +589,6 @@ function viewIllustrator(name) {
   $view.innerHTML = `<div class="stack">
     <div class="row"><a href="#/illustrators" class="pill" style="display:flex;align-items:center">←</a><div class="col" style="flex:1"><h1>${esc(name)}</h1><span class="muted">Ilustrador · ${cards.length} cartas</span></div>
       <button class="pill ${fav ? 'on' : ''}" id="fav">${fav ? '★ Siguiendo' : '☆ Seguir'}</button></div>
-    <div class="pills">${[['ja', 'Japonés'], ['es', 'Español / inglés'], ['all', 'Todos los idiomas']].map(([k, l]) => `<button class="pill ${illLang === k ? 'on' : ''}" data-il="${k}">${l}</button>`).join('')}</div>
     ${ord && illLang === ord.lang ? ordenTabs(false) : ''}
     <div class="card col" style="gap:8px" id="ihead"></div>
     ${browserControls('ill')}
@@ -633,7 +634,6 @@ function viewOrden(name, ord) {
   $view.innerHTML = `<div class="stack">
     <div class="row"><a href="#/illustrators" class="pill" style="display:flex;align-items:center">←</a><div class="col" style="flex:1"><h1>${esc(name)}</h1><span class="muted">${esc(ord.titulo)} · ${E.length} ilustraciones</span></div>
       <button class="pill ${COL.illustrators[name] ? 'on' : ''}" id="fav">${COL.illustrators[name] ? '★ Siguiendo' : '☆ Seguir'}</button></div>
-    <div class="pills">${[['ja', 'Japonés'], ['es', 'Español / inglés'], ['all', 'Todos los idiomas']].map(([k, l]) => `<button class="pill ${illLang === k ? 'on' : ''}" data-il="${k}">${l}</button>`).join('')}</div>
     ${ordenTabs(true)}
     <div class="card col" style="gap:8px" id="ohead"></div>
     <div class="between" style="flex-wrap:wrap;gap:8px">
