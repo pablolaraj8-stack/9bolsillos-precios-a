@@ -1350,6 +1350,12 @@ async function saveDb(meta) { const buf = DB.export().buffer; await idbPut('db',
 async function autoUpdate() {
   const v = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null);
   if (!v || !v.prices_date) return false;
+  // Si el móvil tiene guardada una versión vieja de la app, recarga una vez saltándose la caché
+  const mine = ((document.querySelector('script[src*="app.js"]') || {}).src || '').split('v=')[1] || '';
+  if (v.app_ver && mine && v.app_ver !== mine) {
+    let tried = ''; try { tried = sessionStorage.getItem('reload_for') || ''; sessionStorage.setItem('reload_for', v.app_ver); } catch (e) {}
+    if (tried !== v.app_ver) { location.replace(location.pathname + '?r=' + v.app_ver + location.hash); return false; }
+  }
   if (!v.catalog_ver) {   // publicación antigua: descarga completa sin comprimir
     const want = v.prices_date + '|' + (v.built_at || '');
     if ((await idbGet('db_ver')) === want && await idbGet('db')) return false;

@@ -109,7 +109,7 @@ db.close()
 with open(a.db, "rb") as f:
     gz("9bolsillos.db.gz", f.read())
 
-json.dump({"prices_date": meta.get("prices_date"), "built_at": meta.get("built_at", ""), "catalog_ver": catalog_ver,
+json.dump({"prices_date": meta.get("prices_date"), "built_at": meta.get("built_at", ""), "catalog_ver": catalog_ver, "app_ver": os.environ.get("GITHUB_SHA", "")[:7],
            "history_days": sorted(days), "schema": 2}, open(os.path.join(a.out, "version.json"), "w"))
 sizes = {n: os.path.getsize(os.path.join(a.out, n)) for n in os.listdir(a.out) if n.endswith(".gz")}
 print("catálogo", catalog_ver, "| base", round(sizes["9bolsillos.db.gz"] / 1e6, 1), "MB | precios del día",
