@@ -99,7 +99,7 @@ def main():
         lines = []
         for key, al, trend, low, best in hits[:4]:
             how = 'oferta más baja' if low is not None and (trend is None or low < trend) and low <= al['target'] else 'tendencia'
-            lines.append(f"{card_name(db, al['card'])}: {eur(best)} ({how}, objetivo {eur(al['target'])})")
+            lines.append(f"{card_name(db, al['card']) if al.get('card') else al.get('name', 'Carta')}: {eur(best)} ({how}, objetivo {eur(al['target'])})")
         if len(hits) > 4:
             lines.append(f'y {len(hits) - 4} más')
         title = '¡Una carta de tus deseos ha bajado!' if len(hits) == 1 else f'¡{len(hits)} cartas de tus deseos han bajado!'
