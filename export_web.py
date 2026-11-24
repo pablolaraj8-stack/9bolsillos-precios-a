@@ -52,33 +52,57 @@ days = [r[0] for r in db.execute("SELECT DISTINCT day FROM history ORDER BY day 
 for d in days:
     gz(f"history-{d}.json.gz", db.execute("SELECT cm_product_id, trend_c, trend_holo_c FROM history WHERE day = ?", (d,)).fetchall())
 
-# Logos de sets en español que TCGdex aún no tiene: se sacan de CollectHolo (su lista de sets es pública).
-# Si falla, la app sigue con los logos de TCGdex y el distintivo con el nombre.
-def set_logos():
-    import unicodedata, urllib.request
+# Logos de sets en español e imágenes de cartas que TCGdex aún no tiene: se sacan de CollectHolo
+# (su lista de sets y la de cartas de cada set son públicas). Si falla, la app sigue con lo de TCGdex.
+def collectholo_fill():
+    import unicodedata, urllib.request, time
     norm = lambda t: re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", (t or "").lower()).encode("ascii", "ignore").decode())
+    def get(path):
+        req = urllib.request.Request("https://www.collectholo.com" + path, headers={"User-Agent": "9Bolsillos/1.0 (uso personal)", "Accept": "application/json"})
+        return json.load(urllib.request.urlopen(req, timeout=30))
     try:
-        req = urllib.request.Request("https://www.collectholo.com/api/sets?lang=es", headers={"User-Agent": "9Bolsillos/1.0 (uso personal)", "Accept": "application/json"})
-        ch = json.load(urllib.request.urlopen(req, timeout=30)).get("sets", [])
+        ch = get("/api/sets?lang=es").get("sets", [])
     except Exception as e:
-        print("Logos CollectHolo: no disponibles:", e); return {}
+        print("CollectHolo: no disponible:", e); return {}, {}
     by_name, by_date = {}, {}
     for x in ch:
-        logo = (x.get("images") or {}).get("logo")
-        if not logo: continue
         for k in (x.get("name"), x.get("explore_set_name"), x.get("name_en")):
-            if k: by_name.setdefault(norm(k), logo)
-        by_date.setdefault(((x.get("release_date") or "").replace("/", "-"), x.get("total")), logo)
+            if k: by_name.setdefault(norm(k), x)
+        by_date.setdefault(((x.get("release_date") or "").replace("/", "-"), x.get("total")), x)
     con = sqlite3.connect(a.db)
-    out = {}
+    logos, imgs, recent = {}, {}, []
     for sid, es, en, rd, n in con.execute("SELECT set_id, name_es, name_en, release_date, card_count FROM sets WHERE lang='es'"):
-        logo = by_name.get(norm(es)) or by_name.get(norm(en)) or by_date.get((rd, n))
-        if logo: out[sid] = logo
+        x = by_name.get(norm(es)) or by_name.get(norm(en)) or by_date.get((rd, n))
+        if not x: continue
+        logo = (x.get("images") or {}).get("logo")
+        if logo: logos[sid] = logo
+        if rd and rd >= time.strftime("%Y-%m-%d", time.gmtime(time.time() - 400 * 86400)): recent.append((sid, x["id"]))
+    # Imágenes: solo sets del último año (los antiguos ya los tiene TCGdex). Se empareja por número y, si no cuadra, por nombre.
+    for sid, chid in recent:
+        try:
+            cards = get(f"/api/sets/{chid}/binder").get("cards", [])
+        except Exception as e:
+            print("CollectHolo: sin cartas de", chid, e); continue
+        by_num, by_nm = {}, {}
+        for c in cards:
+            if not c.get("isDefaultVariant", True) or not c.get("smallImageUrl"): continue
+            by_num.setdefault(str(c.get("number", "")).lstrip("0"), []).append(c)
+            by_nm.setdefault(norm(c.get("name")), []).append(c)
+        for cid, local, nm_es, nm_en in con.execute("SELECT card_id, local_id, name_es, name_en FROM cards WHERE set_id=?", (sid,)):
+            cand = by_num.get(str(local).lstrip("0"), [])
+            hit = next((c for c in cand if norm(c.get("name")) in (norm(nm_en), norm(nm_es))), None)
+            if not hit:
+                same = by_nm.get(norm(nm_en)) or by_nm.get(norm(nm_es)) or []
+                hit = same[0] if len(same) == 1 else None
+            if hit: imgs[cid] = hit["smallImageUrl"]
+        time.sleep(0.5)
     con.close()
-    print(f"Logos CollectHolo: {len(out)} sets")
-    return out
+    print(f"CollectHolo: {len(logos)} logos, {len(imgs)} imágenes de cartas ({len(recent)} sets recientes)")
+    return logos, imgs
+_logos, _imgs = collectholo_fill()
 with open(os.path.join(a.out, "logos.js"), "w", encoding="utf-8") as f:
-    f.write("window.SET_LOGOS = " + json.dumps(set_logos(), separators=(",", ":")) + ";\n")
+    f.write("window.SET_LOGOS = " + json.dumps(_logos, separators=(",", ":")) + ";\n")
+    f.write("window.IMG_FB = " + json.dumps(_imgs, separators=(",", ":")) + ";\n")
 
 # Copia completa comprimida (la app la usa la primera vez o cuando cambia el catálogo)
 db.close()

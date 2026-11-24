@@ -41,7 +41,7 @@ function cmLink(v, c) {
   const name = r ? r.name.replace(/\s*\[.*$/, '') : (c.name_en || c.name);
   return 'https://www.cardmarket.com/es/Pokemon/Products/Singles' + (r && r.cm_expansion_id ? '?idExpansion=' + r.cm_expansion_id + '&' : '?') + 'searchString=' + encodeURIComponent(name);
 }
-function cardImg(c, size, cls, alt) { return CUSTOM_IMG[c.card_id] ? `<img ${cls ? `class="${cls}"` : ''} alt="${esc(alt || '')}" src="${CUSTOM_IMG[c.card_id]}">` : imgTag(c.image_base, size, cls, alt || ''); }
+function cardImg(c, size, cls, alt) { return CUSTOM_IMG[c.card_id] ? `<img ${cls ? `class="${cls}"` : ''} alt="${esc(alt || '')}" src="${CUSTOM_IMG[c.card_id]}">` : imgTag(c.image_base, size, cls, alt || '', '', (window.IMG_FB || {})[c.card_id] || ''); }
 async function loadCustomImgs() {
   const d = await idb();
   await new Promise(r => { const req = d.transaction('files').objectStore('files').openCursor(); req.onsuccess = () => { const cur = req.result; if (!cur) return r(); if (String(cur.key).startsWith('img:')) CUSTOM_IMG[String(cur.key).slice(4)] = cur.value; cur.continue(); }; req.onerror = () => r(); });
@@ -65,9 +65,12 @@ function imgUrls(base, size) {
   const en = base + '/' + size + '.webp';
   return base.includes('/en/') ? [base.replace('/en/', '/es/') + '/' + size + '.webp', en] : [en, ''];
 }
-const IMG_ERR = "if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb=''}else{this.style.visibility='hidden';var n=this.parentNode&&this.parentNode.querySelector('.fbn');if(n)n.style.display=''}";
-function imgTag(base, size, cls, alt, extra = '') {
-  const [src, fb] = imgUrls(base, size);
+const IMG_ERR = "var l=(this.dataset.fb||'').split('|').filter(Boolean);if(l.length){this.src=l.shift();this.dataset.fb=l.join('|')}else{this.style.visibility='hidden';var n=this.parentNode&&this.parentNode.querySelector('.fbn');if(n)n.style.display=''}";
+function imgTag(base, size, cls, alt, extra = '', more = '') {
+  // more: otra imagen de reserva (CollectHolo) por si TCGdex aún no tiene la de esta carta
+  let [src, fb] = imgUrls(base, size);
+  if (!src && more) [src, fb] = [more, ''];
+  else if (more) fb = [fb, more].filter(Boolean).join('|');
   if (!src) return cls ? `<div class="${cls}"></div>` : '';
   return `<img ${cls ? `class="${cls}"` : ''} loading="lazy" alt="${esc(alt)}" src="${esc(src)}" data-fb="${esc(fb)}" onerror="${IMG_ERR}" ${extra}>`;
 }
