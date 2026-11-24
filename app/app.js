@@ -636,7 +636,7 @@ function ordenData(ord) {
 }
 function ordenPrice(name, e, vmap) { if (e.id) return COL.cards[e.id] ? vPrice(ownedVariant(e.id, vmap[e.id])) : cheapest(vmap[e.id]); return e.cm ? rPrice(e.pr) : null; }
 const ordenImgKey = (name, e) => 'orden:' + name.toLowerCase() + ':' + e.o;
-function ordenImg(e, cls = '', name = '') { const mine = name && CUSTOM_IMG[ordenImgKey(name, e)]; if (mine) return `<img ${cls ? `class="${cls}"` : ''} loading="lazy" alt="${esc(e.n)}" src="${esc(mine)}">`; return e.id ? cardImg(e, cls ? 'high' : 'low', cls, e.n) : e.img ? `<img ${cls ? `class="${cls}"` : ''} loading="lazy" alt="${esc(e.n)}" src="${esc(ORDEN_IMG + e.img)}" onerror="this.remove()">` : ''; }
+function ordenImg(e, cls = '', name = '') { const mine = name && CUSTOM_IMG[ordenImgKey(name, e)]; if (mine) return `<img ${cls ? `class="${cls}"` : ''} loading="lazy" alt="${esc(e.n)}" src="${esc(mine)}">`; return e.id ? cardImg(e, cls ? 'high' : 'low', cls, e.n) : e.img ? `<img ${cls ? `class="${cls}"` : ''} loading="lazy" alt="${esc(e.n)}" src="${esc((window.ORDEN_IMGS || {})[e.img] || ORDEN_IMG + e.img)}" onerror="this.remove()">` : ''; }
 function viewOrden(name, ord) {
   const { E, vmap } = ordenData(ord);
   $view.innerHTML = `<div class="stack">

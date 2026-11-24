@@ -100,9 +100,38 @@ def collectholo_fill():
     print(f"CollectHolo: {len(logos)} logos, {len(imgs)} imágenes de cartas ({len(recent)} sets recientes)")
     return logos, imgs
 _logos, _imgs = collectholo_fill()
+
+# Las imágenes se descargan y se publican junto a la web: el iPhone no muestra las enlazadas
+# directamente desde CollectHolo. Si una descarga falla, se deja el enlace original.
+def self_host(urls, sub):
+    import urllib.request, concurrent.futures
+    def one(item):
+        key, url = item
+        ext = os.path.splitext(url.split("?")[0])[1] or ".webp"
+        rel = f"img/{sub}/{re.sub(r'[^A-Za-z0-9_-]', '_', os.path.splitext(key)[0] if key.endswith(ext) else key)}{ext}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "9Bolsillos/1.0 (uso personal)"})
+            data = urllib.request.urlopen(req, timeout=30).read()
+            if len(data) < 200: return key, url
+            os.makedirs(os.path.dirname(os.path.join(a.out, rel)), exist_ok=True)
+            with open(os.path.join(a.out, rel), "wb") as fh: fh.write(data)
+            return key, rel
+        except Exception:
+            return key, url
+    with concurrent.futures.ThreadPoolExecutor(4) as ex:
+        out = dict(ex.map(one, urls.items()))
+    print(f"Imágenes {sub}: {sum(1 for v in out.values() if v.startswith('img/'))}/{len(out)} publicadas en la web")
+    return out
+_logos = self_host(_logos, "logos")
+_imgs = self_host(_imgs, "cartas")
+_orden = {}
+if os.path.exists(orden_path):
+    base = "https://images.collectholo.com/product/cards-jp/"
+    _orden = self_host({m: base + m for m in set(re.findall(r'"img":"([^"]+)"', open(orden_path, encoding="utf-8").read()))}, "orden")
 with open(os.path.join(a.out, "logos.js"), "w", encoding="utf-8") as f:
     f.write("window.SET_LOGOS = " + json.dumps(_logos, separators=(",", ":")) + ";\n")
     f.write("window.IMG_FB = " + json.dumps(_imgs, separators=(",", ":")) + ";\n")
+    f.write("window.ORDEN_IMGS = " + json.dumps(_orden, separators=(",", ":")) + ";\n")
 
 # Copia completa comprimida (la app la usa la primera vez o cuando cambia el catálogo)
 db.close()
