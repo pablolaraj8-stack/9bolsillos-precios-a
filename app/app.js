@@ -25,14 +25,16 @@ function img(base, cls = 'thumb', alt = '', cardId = null) { return cardId && CU
 // Imágenes propias (fotos que sube el usuario), guardadas en el navegador
 const CUSTOM_IMG = {};
 // Logo del set: misma carpeta que las imágenes de sus cartas en TCGdex (logo.webp); español con respaldo en inglés
-function setLogo(base, cls, name = '') {
-  // Si TCGdex aún no tiene logo (sets muy nuevos), se muestra un distintivo con el nombre
-  const badge = `<span class="fbn logofb ${cls === 'biglogo' ? 'big' : ''}" ${base ? 'style="display:none"' : ''}>${esc(name)}</span>`;
-  if (!base) return badge;
-  const dir = base.replace(/\/[^/]+$/, '');
-  const urls = dir.includes('/en/') ? [dir.replace('/en/', '/es/') + '/logo.webp', dir + '/logo.webp'] : [dir + '/logo.webp', ''];
-  return `<img class="${cls}" loading="lazy" alt="" src="${esc(urls[0])}" data-fb="${esc(urls[1])}" onerror="${IMG_ERR.replace("this.style.visibility='hidden'", "this.style.display='none'")}">` + badge;
+function setLogo(base, cls, name = '', setId = '') {
+  // Logo del set: TCGdex en español → TCGdex en inglés → CollectHolo (para los sets nuevos) → distintivo con el nombre
+  const dir = base ? base.replace(/\/[^/]+$/, '') : '';
+  const urls = (dir ? (dir.includes('/en/') ? [dir.replace('/en/', '/es/') + '/logo.webp', dir + '/logo.webp'] : [dir + '/logo.webp']) : [])
+    .concat((window.SET_LOGOS || {})[setId] || []);
+  const badge = `<span class="fbn logofb ${cls === 'biglogo' ? 'big' : ''}" ${urls.length ? 'style="display:none"' : ''}>${esc(name)}</span>`;
+  if (!urls.length) return badge;
+  return `<img class="${cls}" loading="lazy" alt="" src="${esc(urls[0])}" data-fb="${esc(urls.slice(1).join('|'))}" onerror="${LOGO_ERR}">` + badge;
 }
+const LOGO_ERR = "var l=(this.dataset.fb||'').split('|').filter(Boolean);if(l.length){this.src=l.shift();this.dataset.fb=l.join('|')}else{this.style.display='none';var n=this.parentNode&&this.parentNode.querySelector('.fbn');if(n)n.style.display=''}";
 // Enlace a Cardmarket: listado de singles del set de la carta, filtrado por su nombre
 function cmLink(v, c) {
   const r = v ? q('SELECT name, cm_expansion_id FROM cm_products WHERE cm_product_id = ?', [v.cm_product_id])[0] : null;
@@ -301,7 +303,7 @@ function viewSets() {
     const list = rows.filter(r => okLang(r) && (!ql || (r.name || '').toLowerCase().includes(ql) || (r.serie || '').toLowerCase().includes(ql)));
     document.getElementById('setlist').innerHTML = list.map(r => {
       const o = ownCount[r.set_id] || 0, p = Math.round(o / r.n * 100);
-      return `<a class="item" href="#/set/${encodeURIComponent(r.set_id)}"><div class="logobox">${setLogo(r.ib, 'setlogo', r.name)}</div><div class="col" style="flex:1"><b>${esc(r.name)}</b><span class="muted">${esc(r.serie)} · ${r.release_date ? esc(r.release_date.slice(0, 4)) : ''} · ${r.n} cartas${setsFilter === 'otros' || setsFilter === 'mine' ? ' · ' + esc(LANGS[r.lang] || r.lang) : ''}</span>
+      return `<a class="item" href="#/set/${encodeURIComponent(r.set_id)}"><div class="logobox">${setLogo(r.ib, 'setlogo', r.name, r.set_id)}</div><div class="col" style="flex:1"><b>${esc(r.name)}</b><span class="muted">${esc(r.serie)} · ${r.release_date ? esc(r.release_date.slice(0, 4)) : ''} · ${r.n} cartas${setsFilter === 'otros' || setsFilter === 'mine' ? ' · ' + esc(LANGS[r.lang] || r.lang) : ''}</span>
         ${o ? `<div class="bar" style="margin-top:4px"><div style="width:${p}%"></div></div>` : ''}</div><span class="muted">${o ? `${o}/${r.n}` : ''}</span></a>`;
     }).join('') || '<p class="muted">No hay sets que coincidan.</p>';
   };
@@ -459,7 +461,7 @@ function viewSet(setId) {
   const nHidden = cards.filter(c => (COL.hide || {})[c.card_id] || c.no_es).length;
   $view.innerHTML = `<div class="stack">
     <div class="row"><a href="#/sets" class="pill" style="display:flex;align-items:center">←</a></div>
-    <div class="sethero"><div class="herologo">${setLogo(ib, 'biglogo', s.name)}</div><div class="col" style="align-items:center;text-align:center"><h1>${esc(s.name)}</h1><span class="muted">${esc(s.serie)} · ${esc(s.release_date || '')} · ${esc(LANGS[s.lang] || s.lang)}</span></div></div>
+    <div class="sethero"><div class="herologo">${setLogo(ib, 'biglogo', s.name, s.set_id)}</div><div class="col" style="align-items:center;text-align:center"><h1>${esc(s.name)}</h1><span class="muted">${esc(s.serie)} · ${esc(s.release_date || '')} · ${esc(LANGS[s.lang] || s.lang)}</span></div></div>
     <div class="card col" style="gap:8px" id="sethead"></div>
     ${browserControls()}
     ${MASTER ? `<div class="col" style="gap:6px"><span class="muted" style="font-size:13px">Versiones que cuentan en este set (desmarca las que no existen en tu idioma):</span>

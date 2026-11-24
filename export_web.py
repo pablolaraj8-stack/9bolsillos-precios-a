@@ -52,6 +52,34 @@ days = [r[0] for r in db.execute("SELECT DISTINCT day FROM history ORDER BY day 
 for d in days:
     gz(f"history-{d}.json.gz", db.execute("SELECT cm_product_id, trend_c, trend_holo_c FROM history WHERE day = ?", (d,)).fetchall())
 
+# Logos de sets en español que TCGdex aún no tiene: se sacan de CollectHolo (su lista de sets es pública).
+# Si falla, la app sigue con los logos de TCGdex y el distintivo con el nombre.
+def set_logos():
+    import unicodedata, urllib.request
+    norm = lambda t: re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", (t or "").lower()).encode("ascii", "ignore").decode())
+    try:
+        req = urllib.request.Request("https://www.collectholo.com/api/sets?lang=es", headers={"User-Agent": "9Bolsillos/1.0 (uso personal)", "Accept": "application/json"})
+        ch = json.load(urllib.request.urlopen(req, timeout=30)).get("sets", [])
+    except Exception as e:
+        print("Logos CollectHolo: no disponibles:", e); return {}
+    by_name, by_date = {}, {}
+    for x in ch:
+        logo = (x.get("images") or {}).get("logo")
+        if not logo: continue
+        for k in (x.get("name"), x.get("explore_set_name"), x.get("name_en")):
+            if k: by_name.setdefault(norm(k), logo)
+        by_date.setdefault(((x.get("release_date") or "").replace("/", "-"), x.get("total")), logo)
+    con = sqlite3.connect(a.db)
+    out = {}
+    for sid, es, en, rd, n in con.execute("SELECT set_id, name_es, name_en, release_date, card_count FROM sets WHERE lang='es'"):
+        logo = by_name.get(norm(es)) or by_name.get(norm(en)) or by_date.get((rd, n))
+        if logo: out[sid] = logo
+    con.close()
+    print(f"Logos CollectHolo: {len(out)} sets")
+    return out
+with open(os.path.join(a.out, "logos.js"), "w", encoding="utf-8") as f:
+    f.write("window.SET_LOGOS = " + json.dumps(set_logos(), separators=(",", ":")) + ";\n")
+
 # Copia completa comprimida (la app la usa la primera vez o cuando cambia el catálogo)
 db.close()
 with open(a.db, "rb") as f:
