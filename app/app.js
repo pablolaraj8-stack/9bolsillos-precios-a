@@ -386,6 +386,7 @@ function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
   const priceOf = e => e.k ? vPrice(e.v) : (COL.cards[e.c.card_id] ? vPrice(ownedVariant(e.c.card_id, vmap[e.c.card_id])) : cheapest(vmap[e.c.card_id]));
   const draw = () => {
     const E = entries();
+    LIST_CTX = [...new Set(E.map(e => '#/card/' + encodeURIComponent(e.c.card_id)))];
     let have = 0, missCost = 0, val = 0;
     E.forEach(e => { const p = priceOf(e) || 0; if (owns(e)) { have++; val += e.k ? p : cardValue(e.c.card_id, p); } else missCost += p; });
     const p = E.length ? have / E.length * 100 : 0;
@@ -659,6 +660,7 @@ function viewOrden(name, ord) {
         <button class="own" data-oown="${i}" aria-label="${has ? 'Quitar de' : 'Añadir a'} mi colección: ${esc(e.n)}">${has ? '✓' : '＋'}</button></div>
       <span class="num">${esc(e.d.slice(0, 4))} · ${esc(e.s)}</span><span class="nm">${esc(e.n)}</span><span class="pr">${eur(p)}</span></div>`; };
   const draw = () => {
+    LIST_CTX = E.map(e => ordenRoute(name, e));
     let have = 0, val = 0, miss = 0;
     E.forEach(e => { const p = ordenPrice(name, e, vmap) || 0; if (ordenOwned(name, e)) { have++; val += e.id ? cardValue(e.id, p) : p * ((COL.extra[ordenKey(name, e).slice(2)] || {}).qty || 1); } else miss += p; });
     const pc = have / E.length * 100, next = E.find(e => !ordenOwned(name, e));
@@ -689,33 +691,41 @@ function viewOrden(name, ord) {
         || '<p class="muted">Nada que mostrar con este filtro.</p>';
     }
     el.querySelectorAll('[data-oown]').forEach(b => b.onclick = ev => { ev.stopPropagation(); ordenToggle(name, E[+b.dataset.oown], vmap); draw(); });
-    el.querySelectorAll('[data-oi]').forEach(t => t.onclick = () => { const e = E[+t.dataset.oi]; if (e.id) location.hash = '#/card/' + encodeURIComponent(e.id); else ordenSheet(name, e, vmap, draw); });
+    el.querySelectorAll('[data-oi]').forEach(t => t.onclick = () => { location.hash = ordenRoute(name, E[+t.dataset.oi]); });
   };
   draw();
 }
-// Ficha de una carta que no está en la base de datos: foto grande, datos y botón de Cardmarket
-function ordenSheet(name, e, vmap, redraw) {
-  const p = ordenPrice(name, e, vmap), cmUrl = 'https://www.cardmarket.com/es/Pokemon/Products/Singles?' + (e.cm ? 'idProduct=' + e.cm + '&' : '') + 'searchString=' + encodeURIComponent(e.n);
-  const box = document.createElement('div'), ik = ordenImgKey(name, e); box.className = 'sheet';
+const ordenRoute = (name, e) => e.id ? '#/card/' + encodeURIComponent(e.id) : '#/ocard/' + encodeURIComponent(name.toLowerCase()) + '/' + e.o;
+// Ficha de una carta de "Mi orden" que no está en la base de datos: foto grande, datos, Cardmarket y gestos como en las demás
+function viewOrdenCard(key, o) {
+  const ord = (window.ORDEN || {})[key]; if (!ord) { $view.innerHTML = '<p>Carta no encontrada.</p>'; return; }
+  const name = (q(`SELECT illustrator FROM cards WHERE illustrator = ? COLLATE NOCASE LIMIT 1`, [key])[0] || {}).illustrator || key;
+  const { E, vmap } = ordenData(ord), e = E.find(x => String(x.o) === String(o)); if (!e) { $view.innerHTML = '<p>Carta no encontrada.</p>'; return; }
+  const p = ordenPrice(name, e, vmap), ik = ordenImgKey(name, e);
+  const cmUrl = 'https://www.cardmarket.com/es/Pokemon/Products/Singles?' + (e.cm ? 'idProduct=' + e.cm + '&' : '') + 'searchString=' + encodeURIComponent(e.n);
+  const dex = (q(`SELECT dex_id FROM cards WHERE dex_id IS NOT NULL AND (name_en = ? OR name_en = ?) LIMIT 1`, [e.n, e.n.replace(/^(Dark|Light|Janine's) /, '')])[0] || {}).dex_id;
+  const nav = cardNav(location.hash, null, null);
   const paint = () => { const has = ordenOwned(name, e);
-    box.innerHTML = `<div class="sheetin" role="dialog" aria-label="${esc(e.n)}"><button class="pill sheetx" aria-label="Cerrar">✕</button>
-      <div class="cardhero">${ordenImg(e, 'hero', name) || `<div class="hero" style="display:flex;align-items:center;justify-content:center;padding:12px;text-align:center" >${esc(e.n)}<br>Sin foto</div>`}
-        <div class="row" style="flex-wrap:wrap;gap:6px;justify-content:center"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG[ik] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="oimg" accept="image/*" hidden></label>
-          <button class="pill" id="ourl" style="font-size:13px">Enlace</button>${CUSTOM_IMG[ik] ? '<button class="pill" id="odel" style="font-size:13px">Quitar</button>' : ''}</div>
-        <h1>${esc(e.n)}</h1><span class="muted">#${e.o} · ${esc(e.s)} · ${esc(e.no)} · ${esc(e.d)}</span>
+    $view.innerHTML = `<div class="stack cardpage"><div class="grabber" aria-hidden="true"></div>
+      <div class="row"><a href="#/illustrator/${encodeURIComponent(name)}" class="pill" id="cback" style="display:flex;align-items:center" aria-label="Volver">←</a><span class="muted">${esc(name)} · #${e.o} de ${E.length}</span></div>
+      <div class="cardhero">${ordenImg(e, 'hero', name) || `<div class="hero" style="display:flex;align-items:center;justify-content:center;padding:12px;text-align:center">${esc(e.n)}<br>Sin foto</div>`}
+        <h1>${esc(e.n)}</h1><span class="muted">${esc(e.s)} · ${esc(e.no)} · ${esc(e.d)}</span>
         ${p != null ? `<div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}</span>` : `<span class="muted">${e.cm ? 'Sin precio hoy en Cardmarket' : 'Sin precio: no está enlazada con Cardmarket'}</span>`}
         <a class="btn cmbtn" target="_blank" rel="noopener" href="${esc(cmUrl)}">Ver en Cardmarket ↗</a>
         ${e.note ? `<span class="muted" style="color:var(--down)">${esc(e.note)}</span>` : ''}
-        <button class="btn ${has ? 'warn' : ''}" id="stog" style="width:100%;max-width:340px">${has ? 'Quitar de la colección' : '＋ La tengo'}</button></div></div>`;
-    box.querySelector('.sheetx').onclick = () => box.remove();
-    const setImg = async u => { CUSTOM_IMG[ik] = u; await idbPut('img:' + ik, u); imgsDirty = true; saveCol(); paint(); redraw(); };
-    box.querySelector('#oimg').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { await setImg(await resizeImage(f)); toast('Foto guardada'); } catch (er) { alert(er.message); } };
-    box.querySelector('#ourl').onclick = async () => { const u = prompt('Pega el enlace de una imagen de la carta (https://…)'); if (u && /^https:\/\//.test(u.trim())) await setImg(u.trim()); };
-    const od = box.querySelector('#odel'); if (od) od.onclick = async () => { delete CUSTOM_IMG[ik]; await idbDel('img:' + ik); imgsDirty = true; saveCol(); paint(); redraw(); };
-    box.querySelector('#stog').onclick = () => { ordenToggle(name, e, vmap); paint(); redraw(); }; };
-  box.onclick = ev => { if (ev.target === box) box.remove(); };
-  paint(); document.body.appendChild(box);
-  window.addEventListener('hashchange', () => box.remove(), { once: true });
+        <button class="btn ${has ? 'warn' : ''}" id="stog" style="width:100%;max-width:340px">${has ? 'Quitar de la colección' : '＋ La tengo'}</button>
+        <div class="row" style="flex-wrap:wrap;gap:6px;justify-content:center"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG[ik] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="oimg" accept="image/*" hidden></label>
+          <button class="pill" id="ourl" style="font-size:13px">Enlace</button>${CUSTOM_IMG[ik] ? '<button class="pill" id="odel" style="font-size:13px">Quitar</button>' : ''}</div></div>
+      ${nav.html}
+      ${dex ? `<div class="card col pinfo" id="pinfo">${pokeInfoHTML(dex, e.n)}</div>` : ''}</div>`;
+    const setImg = async u => { CUSTOM_IMG[ik] = u; await idbPut('img:' + ik, u); imgsDirty = true; saveCol(); paint(); };
+    document.getElementById('oimg').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { await setImg(await resizeImage(f)); toast('Foto guardada'); } catch (er) { alert(er.message); } };
+    document.getElementById('ourl').onclick = async () => { const u = prompt('Pega el enlace de una imagen de la carta (https://…)'); if (u && /^https:\/\//.test(u.trim())) await setImg(u.trim()); };
+    const od = document.getElementById('odel'); if (od) od.onclick = async () => { delete CUSTOM_IMG[ik]; await idbDel('img:' + ik); imgsDirty = true; saveCol(); paint(); };
+    document.getElementById('stog').onclick = () => { ordenToggle(name, e, vmap); paint(); };
+  };
+  paint();
+  if (dex) pokeAfter(dex, e.n);
 }
 // Cartas que Cardmarket vende pero que no están en la base de datos (sobre todo japonesas antiguas).
 // Se emparejan con su versión inglesa por nombre + ataques, así que conviene revisarlas.
@@ -747,6 +757,22 @@ function extraSection(name) {
   draw();
 }
 
+/* ---------- contexto de navegación: desde una lista (set, ilustrador, Mi orden) se pasa de carta en carta en ese orden ---------- */
+let LIST_CTX = null, NAV_CTX = null;
+function cardNav(hash, setOrder, setLabel) {
+  let list = NAV_CTX && NAV_CTX.includes(hash) ? NAV_CTX : null;
+  if (!list && setOrder) list = setOrder.map(id => '#/card/' + encodeURIComponent(id));
+  if (!list) { CARD_NAV = null; return { html: '' }; }
+  const i = list.indexOf(hash), prev = i > 0 ? list[i - 1] : null, next = i >= 0 && i < list.length - 1 ? list[i + 1] : null;
+  CARD_NAV = { prev, next, set: setLabel };
+  return { html: `<div class="cardnav">${prev ? `<a class="pill" href="${prev}" data-nav="prev" aria-label="Carta anterior">‹ Anterior</a>` : '<span></span>'}
+    <span class="muted">${i + 1} de ${list.length} · desliza para cambiar</span>
+    ${next ? `<a class="pill" href="${next}" data-nav="next" aria-label="Carta siguiente">Siguiente ›</a>` : '<span></span>'}</div>` };
+}
+function pokeAfter(dex, nm) {
+  const fill = () => { const el = document.getElementById('pinfo'); if (!el) return; const h = pokeInfoHTML(dex, nm); if (h) el.innerHTML = h; else el.remove(); };
+  if (POKE[dex] === undefined) loadPoke(dex).then(fill); else fill();
+}
 /* ---------- información del Pokémon (PokéAPI, en español; se guarda para no volver a pedirla) ---------- */
 const POKE = {};
 try { Object.assign(POKE, JSON.parse(localStorage.getItem('poke_cache') || '{}')); } catch (e) {}
@@ -760,12 +786,12 @@ async function loadPoke(dex) {
       types: pk.types.map(t => TIPOS[t.type.name] || t.type.name), h: pk.height / 10, w: pk.weight / 10,
       gn: (sp.generation && sp.generation.name || '').replace('generation-', '').toUpperCase(), leg: sp.is_legendary, myth: sp.is_mythical };
     try { localStorage.setItem('poke_cache', JSON.stringify(POKE)); } catch (e) {}
-  } catch (e) { POKE[dex] = POKE[dex] || null; }
+  } catch (e) { POKE[dex] = null; }
 }
 function pokeInfoHTML(dex, name) {
   const p = POKE[dex];
   if (p === undefined) return `<span class="muted">Cargando información de ${esc(name)}…</span>`;
-  if (!p) return `<span class="muted">No se ha podido cargar la información del Pokémon.</span>`;
+  if (!p) return '';
   const n = String(dex).padStart(4, '0');
   return `<div class="between"><b>Nº ${n}${p.gen ? ' · ' + esc(p.gen) : ''}</b><span class="row" style="gap:6px">${p.types.map(t => `<span class="tchip">${esc(t)}</span>`).join('')}</span></div>
     ${p.txt ? `<p style="margin:0;line-height:1.45">${esc(p.txt)}</p>` : ''}
@@ -776,7 +802,7 @@ function pokeInfoHTML(dex, name) {
 let CARD_NAV = null;
 (() => {
   let x0 = 0, y0 = 0, mode = '', dx = 0, dy = 0, ok = false;
-  const onCard = () => location.hash.startsWith('#/card/');
+  const onCard = () => location.hash.startsWith('#/card/') || location.hash.startsWith('#/ocard/');
   const reset = anim => { $view.style.transition = anim ? 'transform .2s, opacity .2s' : ''; $view.style.transform = ''; $view.style.opacity = ''; };
   document.addEventListener('touchstart', e => {
     ok = onCard() && e.touches.length === 1 && !e.target.closest('input,select,textarea,.chart,svg');
@@ -798,11 +824,11 @@ let CARD_NAV = null;
     document.addEventListener('click', stop, { capture: true, once: true }); setTimeout(() => document.removeEventListener('click', stop, { capture: true }), 400);
     if (mode === 'v' && dy > 110) {
       $view.style.transition = 'transform .18s, opacity .18s'; $view.style.transform = 'translateY(60vh)'; $view.style.opacity = '0';
-      setTimeout(() => { reset(false); if (history.length > 1) history.back(); else location.hash = '#/set/' + encodeURIComponent(CARD_NAV ? CARD_NAV.set : ''); }, 170);
+      setTimeout(() => { reset(false); if (history.length > 1) history.back(); else location.hash = CARD_NAV && CARD_NAV.set ? '#/set/' + encodeURIComponent(CARD_NAV.set) : '#/sets'; }, 170);
     } else if (mode === 'h' && Math.abs(dx) > 70 && CARD_NAV && (dx < 0 ? CARD_NAV.next : CARD_NAV.prev)) {
       const id = dx < 0 ? CARD_NAV.next : CARD_NAV.prev;
       $view.style.transition = 'transform .15s, opacity .15s'; $view.style.transform = `translateX(${dx < 0 ? -40 : 40}vw)`; $view.style.opacity = '0';
-      setTimeout(() => { reset(false); location.replace('#/card/' + encodeURIComponent(id)); $view.style.transform = `translateX(${dx < 0 ? 30 : -30}vw)`; $view.style.opacity = '0';
+      setTimeout(() => { reset(false); location.replace(id); $view.style.transform = `translateX(${dx < 0 ? 30 : -30}vw)`; $view.style.opacity = '0';
         requestAnimationFrame(() => requestAnimationFrame(() => reset(true))); }, 140);
     } else reset(true);
   });
@@ -813,8 +839,7 @@ function viewCard(cardId) {
   const vs = variantsOf([cardId])[cardId] || [];
   const e = COL.cards[cardId];
   const order = q(`SELECT card_id FROM cards WHERE set_id=? ORDER BY CAST(local_id AS INTEGER), local_id`, [c.set_id]).map(r => r.card_id);
-  const idx = order.indexOf(cardId), prevId = idx > 0 ? order[idx - 1] : null, nextId = idx >= 0 && idx < order.length - 1 ? order[idx + 1] : null;
-  CARD_NAV = { prev: prevId, next: nextId, set: c.set_id };
+  const idx = order.indexOf(cardId), nav = cardNav(location.hash, order, c.set_id);
   const albumPos = idx >= 0 ? `Álbum del set: página ${Math.floor(idx / 9) + 1}, bolsillo ${idx % 9 + 1}` : '';
   let sel = ownedVariant(cardId, vs) || vs.slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0] || null;
   const draw = () => {
@@ -839,10 +864,8 @@ function viewCard(cardId) {
         ${c.illustrator ? `<a href="#/illustrator/${encodeURIComponent(c.illustrator)}" style="font-size:14px">Ilustración: ${esc(c.illustrator)} →</a>` : ''}${albumPos ? `<span class="muted">${albumPos}</span>` : ''}
         <div class="row" style="flex-wrap:wrap;gap:6px;justify-content:center"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG[cardId] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="cimg" accept="image/*" hidden></label>
           <button class="pill" id="curl" style="font-size:13px">Enlace</button>${CUSTOM_IMG[cardId] ? '<button class="pill" id="cdel" style="font-size:13px">Quitar</button>' : ''}</div></div>
-      <div class="cardnav">${prevId ? `<a class="pill" href="#/card/${encodeURIComponent(prevId)}" data-nav="prev" aria-label="Carta anterior">‹ ${esc(order[idx - 1].split('-').pop())}</a>` : '<span></span>'}
-        <span class="muted">${idx + 1} de ${order.length} · desliza para cambiar</span>
-        ${nextId ? `<a class="pill" href="#/card/${encodeURIComponent(nextId)}" data-nav="next" aria-label="Carta siguiente">${esc(order[idx + 1].split('-').pop())} ›</a>` : '<span></span>'}</div>
-      ${c.dex_id ? `<div class="card col pinfo" id="pinfo">${pokeInfoHTML(c.dex_id, c.name)}</div>` : ''}
+      ${nav.html}
+      ${c.dex_id && POKE[c.dex_id] !== null ? `<div class="card col pinfo" id="pinfo">${pokeInfoHTML(c.dex_id, c.name)}</div>` : ''}
       ${sel ? `<div class="card"><table><tr><th>Cardmarket</th><th>Mínimo</th><th>Tendencia</th><th>Media 7 d</th><th>Media 30 d</th></tr>
         <tr><td>${hol ? 'Reverse holo' : 'Precio'}</td><td>${eur(hol ? sel.low_holo : sel.low)}</td><td>${eur(hol ? sel.trend_holo : sel.trend)}</td><td>${eur(hol ? sel.avg7_holo : sel.avg7)}</td><td>${eur(hol ? sel.avg30_holo : sel.avg30)}</td></tr></table>
         <span class="muted" style="font-size:12px;display:block;margin-top:8px">El botón de Cardmarket abre esta carta dentro de su set; si hay varias versiones, elige la de la misma rareza.</span></div>` : ''}
@@ -894,7 +917,7 @@ function viewCard(cardId) {
     const us = document.getElementById('unsell'); if (us) us.onclick = () => { delete COL.sell[cardId]; saveCol(); draw(); };
   };
   draw();
-  if (c.dex_id && !POKE[c.dex_id]) loadPoke(c.dex_id).then(() => { const el = document.getElementById('pinfo'); if (el && location.hash.includes(encodeURIComponent(cardId))) el.innerHTML = pokeInfoHTML(c.dex_id, c.name); });
+  if (c.dex_id) pokeAfter(c.dex_id, c.name);
 }
 
 /* ---------- lista de deseos (con precio objetivo = alerta) ---------- */
@@ -1367,9 +1390,10 @@ function route() {
   if (!DB) return;
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   const [, a, b] = h.split('/');
-  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more' }[a || ''] || 'home';
+  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more' }[a || ''] || 'home';
   $tabs.querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
   window.scrollTo(0, 0);
+  if (a === 'card' || a === 'ocard') { if (LIST_CTX && LIST_CTX.includes(location.hash)) NAV_CTX = LIST_CTX; else if (!(NAV_CTX && NAV_CTX.includes(location.hash))) NAV_CTX = null; } else LIST_CTX = null;
   try {
     if (!a) viewHome();
     else if (a === 'sets') viewSets();
@@ -1377,6 +1401,7 @@ function route() {
     else if (a === 'illustrators') viewIllustrators();
     else if (a === 'illustrator') viewIllustrator(b);
     else if (a === 'card') viewCard(b);
+    else if (a === 'ocard') viewOrdenCard(b, h.split('/')[3]);
     else if (a === 'search') viewSearch();
     else if (a === 'alerts' || a === 'wish') viewWishlist();
     else if (a === 'expenses') viewExpenses();

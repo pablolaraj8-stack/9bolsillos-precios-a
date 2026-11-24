@@ -222,6 +222,32 @@ def main():
                    [(c["card_id"], c["set_id"], c["local"], c["name_es"], c["name_en"], c["name_ja"],
                      c["rarity"], c["dex"], c["image"], c["name_local"], c["illustrator"]) for c in cards])
 
+    # Nº de Pokédex que falta en TCGdex (sobre todo sets nuevos): se copia de otra carta del mismo Pokémon
+    def dex_key(n):
+        n = (n or "").lower()
+        n = re.sub(r"^(mega |m |radiant |dark |light |shining |alolan |galarian |hisuian |paldean |[a-z.' ]+'s )", "", n)
+        n = re.sub(r"[\s-]+(ex|gx|v|vmax|vstar|v-union|break|prime|lv\.x|legend|star|δ|◇|☆|★)([\s-].*)?$", "", n)
+        return re.sub(r"[^a-z0-9]", "", n)
+    def ja_key(n):
+        return re.sub(r"(ex|gx|vmax|vstar|v|ＧＸ|ＥＸ|\s|・)+$", "", (n or "").strip(), flags=re.I)
+    known_en, known_ja = {}, {}
+    try:  # lista oficial de especies de PokéAPI (nombre en inglés -> nº de Pokédex)
+        import urllib.request
+        req = urllib.request.Request("https://pokeapi.co/api/v2/pokemon-species?limit=2000", headers={"User-Agent": "9Bolsillos/1.0"})
+        for i, sp in enumerate(json.load(urllib.request.urlopen(req, timeout=30))["results"], 1):
+            known_en[re.sub(r"[^a-z0-9]", "", sp["name"])] = int(sp["url"].rstrip("/").split("/")[-1]) if sp.get("url") else i
+    except Exception as e:
+        print("PokéAPI no disponible:", e)
+    for cid, en, ja, dex in db.execute("SELECT card_id, name_en, name_ja, dex_id FROM cards WHERE dex_id IS NOT NULL"):
+        if en: known_en.setdefault(dex_key(en), dex)
+        if ja: known_ja.setdefault(ja_key(ja), dex)
+    fills = []
+    for cid, en, ja in db.execute("SELECT card_id, name_en, name_ja FROM cards WHERE dex_id IS NULL").fetchall():
+        d = (en and known_en.get(dex_key(en))) or (ja and known_ja.get(ja_key(ja)))
+        if d: fills.append((d, cid))
+    db.executemany("UPDATE cards SET dex_id=? WHERE card_id=?", fills)
+    print(f"Nº de Pokédex completado en {len(fills)} cartas")
+
     # Variantes: un mismo id de Cardmarket asignado a varias cartas distintas = ambiguo
     owners = {}
     for c in cards:
