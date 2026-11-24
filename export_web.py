@@ -39,6 +39,12 @@ def gz(name, obj):
 tracked_sql = ("SELECT cm_product_id FROM card_variants UNION SELECT cm_product_id FROM cm_products WHERE kind='sealed'"
                + (" UNION SELECT cm_product_id FROM cm_extra" if has_extra else ""))
 cols = ["low", "trend", "avg", "avg1", "avg7", "avg30", "low_holo", "trend_holo", "avg_holo", "avg1_holo", "avg7_holo", "avg30_holo"]
+# Cartas de las listas "Mi orden" (app/orden.js) enlazadas con Cardmarket: también necesitan su precio diario
+import re
+orden_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app", "orden.js")
+orden_ids = sorted({int(x) for x in re.findall(r'"cm":(\d+)', open(orden_path, encoding="utf-8").read())}) if os.path.exists(orden_path) else []
+if orden_ids:
+    tracked_sql += " UNION SELECT cm_product_id FROM prices WHERE cm_product_id IN (" + ",".join(map(str, orden_ids)) + ")"
 rows = db.execute(f"SELECT cm_product_id, {', '.join(cols)} FROM prices WHERE cm_product_id IN ({tracked_sql})").fetchall()
 gz("prices-latest.json.gz", {"date": meta.get("prices_date"), "cols": cols, "rows": rows})
 
