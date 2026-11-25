@@ -376,17 +376,65 @@ function toggleVariant(id, setId, v, vs) {
   else (COL.master[id] ||= {})[k] = 1;
   saveCol();
 }
+/* ---------- Archivador real: dónde va cada carta en tus páginas de 9 bolsillos ---------- */
+// COL.binders[clave] = { off: bolsillos libres al principio, keys: orden de la última vez que lo recolocaste }
+const binderCfg = akey => ((COL.binders ||= {})[akey] ||= { off: 0 });
+function binderSpot(akey, idx) { const n = idx + (((COL.binders || {})[akey] || {}).off || 0), s = n % 9; return { page: Math.floor(n / 9) + 1, row: Math.floor(s / 3) + 1, col: s % 3 + 1 }; }
+const spotTxt = s => `página ${s.page} · fila ${s.row} · bolsillo ${s.col}`;
+// Orden físico de un set: por número, sin lo que tienes oculto
+function setBinderIds(setId) {
+  return q(`SELECT c.card_id, (c.name_es IS NULL AND s.lang='es' AND s.release_date >= '2019') no_es FROM cards c JOIN sets s USING(set_id) WHERE c.set_id=?
+    ORDER BY CAST(c.local_id AS INTEGER), c.local_id`, [setId]).filter(c => !hiddenCard(c)).map(c => c.card_id);
+}
+function binderChanges(akey, ids, label) {
+  const cfg = binderCfg(akey);
+  if (!cfg.keys) { cfg.keys = ids; saveCol(); return ''; }
+  const old = cfg.keys; if (old.length === ids.length && old.every((k, i) => k === ids[i])) return '';
+  let f = 0; while (f < old.length && f < ids.length && old[f] === ids[f]) f++;
+  const was = new Set(old), now = new Set(ids), add = ids.filter(k => !was.has(k)), gone = old.filter(k => !now.has(k)), d = ids.length - old.length, sp = binderSpot(akey, f);
+  return `<div class="card col binderchg" style="gap:6px;border:1px solid var(--accent, #3DDC97)"><b>📒 Tu archivador ha cambiado</b>
+    ${add.length ? `<span>Entran ${add.length}: ${add.slice(0, 6).map(k => `${esc(label(k))} → <b>${spotTxt(binderSpot(akey, ids.indexOf(k)))}</b>`).join('; ')}${add.length > 6 ? '…' : ''}</span>` : ''}
+    ${gone.length ? `<span>Salen ${gone.length}: ${gone.slice(0, 6).map(k => esc(label(k))).join(', ')}${gone.length > 6 ? '…' : ''}</span>` : ''}
+    <span class="muted">Desde la ${spotTxt(sp)}, ${d > 0 ? `todo avanza ${d} bolsillo${d === 1 ? '' : 's'}` : d < 0 ? `todo retrocede ${-d} bolsillo${d === -1 ? '' : 's'}` : 'cambian cartas de sitio'}.</span>
+    <button class="pill" data-binderok style="align-self:flex-start">Ya lo he recolocado</button></div>`;
+}
+// Pinta las páginas del álbum. binder: true si es tu archivador físico (sets y Mi orden)
+function renderBinder({ akey, E, tile, el, draw, ids, label }) {
+  const off = ids ? (binderCfg(akey).off || 0) : 0, total = E.length + off;
+  const pages = Math.max(1, Math.ceil(total / 9)), per = window.innerWidth >= 760 ? 2 : 1;
+  let pg = albumPage[akey] || 0; pg = Math.min(pg - pg % per, (pages - 1) - (pages - 1) % per); albumPage[akey] = pg;
+  let html = (ids ? binderChanges(akey, ids, label) : '') + `<div class="between pgnav"><button class="pill pgbtn" data-pg="-1" ${pg === 0 ? 'disabled' : ''} aria-label="Página anterior">←</button>
+    <span class="pgtxt">Página ${pg + 1}${per === 2 && pg + 2 <= pages ? '–' + (pg + 2) : ''} de ${pages}</span>
+    <button class="pill pgbtn" data-pg="1" ${pg + per >= pages ? 'disabled' : ''} aria-label="Página siguiente">→</button></div><div class="spread ${albumAnim[akey] || ''}">`;
+  for (let k = pg; k < Math.min(pg + per, pages); k++) {
+    html += `<div class="page"><div class="pgnum">Página ${k + 1}</div><div class="pockets">`;
+    for (let i = 0; i < 9; i++) { const n = k * 9 + i, idx = n - off, e = E[idx];
+      html += n < off ? '<div class="tile empty reserved"><div class="img"><span class="fbn">Libre</span></div></div>' : e ? tile(e, idx, `Página ${k + 1}, fila ${Math.floor(i / 3) + 1}, bolsillo ${i % 3 + 1}`) : '<div class="tile empty"><div class="img"></div></div>'; }
+    html += '</div></div>';
+  }
+  if (ids) html += `<button class="pill" data-boff style="font-size:13px;margin-top:10px">Bolsillos libres al principio: ${off} · cambiar</button>`;
+  el.innerHTML = html + '</div>';
+  const turn = d => { const nx = (albumPage[akey] || 0) + d * per; if (nx < 0 || nx >= pages) return; albumPage[akey] = nx; albumAnim[akey] = d > 0 ? 'fromR' : 'fromL'; draw(); albumAnim[akey] = ''; };
+  el.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => turn(+b.dataset.pg));
+  const ok = el.querySelector('[data-binderok]'); if (ok) ok.onclick = () => { binderCfg(akey).keys = ids; saveCol(); draw(); };
+  const bo = el.querySelector('[data-boff]'); if (bo) bo.onclick = () => { const v = prompt('¿Cuántos bolsillos dejas libres al principio del archivador (portada, logo, una carta especial…)?', off); if (v === null) return;
+    binderCfg(akey).off = Math.max(0, Math.min(99, parseInt(v, 10) || 0)); saveCol(); draw(); };
+  swipePages(el, turn);
+}
 function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
   const kind = opts.kind || 'set', mode = SORT[kind];
   const pr = c => { const p = COL.cards[c.card_id] ? vPrice(ownedVariant(c.card_id, vmap[c.card_id])) : cheapest(vmap[c.card_id]); return p ?? -1; };
   const num = c => [parseInt(c.local_id, 10) || 0, c.local_id || ''];
   const byRel = (a, b) => (a.release_date || '').localeCompare(b.release_date || '') || (a.set_id || '').localeCompare(b.set_id || '') || num(a)[0] - num(b)[0];
   const cards = cards0.filter(c => !hiddenCard(c)).sort(mode === 'new' ? (a, b) => byRel(b, a) : mode === 'old' ? byRel : mode === 'price_desc' ? (a, b) => pr(b) - pr(a) : mode === 'price_asc' ? (a, b) => (pr(a) < 0) - (pr(b) < 0) || pr(a) - pr(b) : mode === 'name' ? (a, b) => (a.name || '').localeCompare(b.name || '', 'es') : (a, b) => num(a)[0] - num(b)[0] || num(a)[1].localeCompare(num(b)[1]));
-  const perSpread = () => window.innerWidth >= 760 ? 2 : 1;
   // Entradas: una por carta (set básico) o una por versión (máster set)
-  const entries = () => MASTER
-    ? cards.flatMap(c => uniqVariants(vmap[c.card_id]).filter(v => !(v && v.stamp) && !hiddenVariant(c, v)).map(v => ({ c, v, k: vkey(v) })))
-    : cards.map(c => ({ c, v: null, k: null }));
+  const numSort = (a, b) => num(a)[0] - num(b)[0] || num(a)[1].localeCompare(num(b)[1]);
+  const physical = kind === 'set';   // un set es un archivador: en álbum siempre va por número
+  const entries = (list = (physical && browseMode === 'album' ? cards.slice().sort(numSort) : cards)) => MASTER
+    ? list.flatMap(c => uniqVariants(vmap[c.card_id]).filter(v => !(v && v.stamp) && !hiddenVariant(c, v)).map(v => ({ c, v, k: vkey(v) })))
+    : list.map(c => ({ c, v: null, k: null }));
+  const ekey = e => e.c.card_id + (e.k ? '|' + e.k : '');
+  const akey = key + (MASTER ? ':m' : '');
   const owns = e => e.k ? ownedKeys(e.c.card_id, vmap[e.c.card_id]).has(e.k) : !!COL.cards[e.c.card_id];
   const priceOf = e => e.k ? vPrice(e.v) : (COL.cards[e.c.card_id] ? vPrice(ownedVariant(e.c.card_id, vmap[e.c.card_id])) : cheapest(vmap[e.c.card_id]));
   const draw = () => {
@@ -411,20 +459,8 @@ function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
         <span class="nm">${esc(c.name)}</span>${vl ? `<span class="num" style="font-weight:600">${esc(vl)}</span>` : ''}<span class="pr">${eur(pr)}</span></div>`;
     };
     if (browseMode === 'album') {
-      const pages = Math.max(1, Math.ceil(E.length / 9)), per = perSpread(), akey = key + (MASTER ? ':m' : '');
-      let pg = albumPage[akey] || 0; pg = Math.min(pg - pg % per, (pages - 1) - (pages - 1) % per); albumPage[akey] = pg;
-      let html = `<div class="between pgnav"><button class="pill pgbtn" data-pg="-1" ${pg === 0 ? 'disabled' : ''} aria-label="Página anterior">←</button>
-        <span class="pgtxt">Página ${pg + 1}${per === 2 && pg + 2 <= pages ? '–' + (pg + 2) : ''} de ${pages}</span>
-        <button class="pill pgbtn" data-pg="1" ${pg + per >= pages ? 'disabled' : ''} aria-label="Página siguiente">→</button></div><div class="spread ${albumAnim[akey] || ''}">`;
-      for (let k = pg; k < Math.min(pg + per, pages); k++) {
-        html += `<div class="page"><div class="pgnum">Página ${k + 1}</div><div class="pockets">`;
-        for (let i = 0; i < 9; i++) { const idx = k * 9 + i, e = E[idx]; html += e ? tile(e, idx, `Página ${k + 1}, bolsillo ${i + 1}`) : '<div class="tile empty"><div class="img"></div></div>'; }
-        html += '</div></div>';
-      }
-      el.innerHTML = html + '</div>';
-      const turn = d => { const nx = (albumPage[akey] || 0) + d * per; if (nx < 0 || nx >= pages) return; albumPage[akey] = nx; albumAnim[akey] = d > 0 ? 'fromR' : 'fromL'; draw(); albumAnim[akey] = ''; };
-      el.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => turn(+b.dataset.pg));
-      swipePages(el, turn);
+      const byKey = {}; E.forEach(e => byKey[ekey(e)] = e);
+      renderBinder({ akey, E, tile, el, draw, ids: physical ? E.map(ekey) : null, label: k => { const e = byKey[k]; return e ? `${e.c.local_id} ${e.c.name}${e.k && e.v ? ' (' + vLabel(e.v) + ')' : ''}` : k; } });
     } else {
       const idx = E.map((e, i) => i).filter(i => browseFilter === 'all' || (browseFilter === 'have' ? owns(E[i]) : !owns(E[i])));
       el.innerHTML = `<div class="grid">${idx.map(i => tile(E[i], i)).join('')}</div>` + (idx.length ? '' : '<p class="muted">Nada que mostrar con este filtro.</p>');
@@ -437,6 +473,7 @@ function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
         else { const v = (vmap[id] || []).slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0]; COL.cards[id] = { set: e.c.set_id, cm: v ? v.cm_product_id : null, variant: v ? v.variant : null, qty: 1 }; }
         saveCol();
       }
+      if (physical && owns(e)) { const i = entries(cards.slice().sort(numSort)).findIndex(x => ekey(x) === ekey(e)); if (i >= 0) toast('📒 Va en la ' + spotTxt(binderSpot(akey, i))); }
       draw();
     });
     el.querySelectorAll('[data-open]').forEach(t => t.onclick = () => location.hash = '#/card/' + encodeURIComponent(t.dataset.open));
@@ -680,20 +717,7 @@ function viewOrden(name, ord) {
       if (e.id) { const v = (vmap[e.id] || []).slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0]; return v ? { key: v.cm_product_id + '|' + (v.variant || ''), card: e.id, cm: v.cm_product_id, variant: v.variant, price: p, name: e.n } : null; }
       return e.cm ? { key: e.cm + '|', cm: e.cm, price: p, name: e.n + ' · ' + e.s, route: ordenRoute(name, e), img: ((ordenImg(e, '', name).match(/src="([^"]+)"/) || [])[1] || '').replace(/^data:.*/, '') || undefined } : null; }).filter(Boolean), draw);
     if (browseMode === 'album') {
-      const pages = Math.ceil(E.length / 9), per = window.innerWidth >= 760 ? 2 : 1;
-      let pg = albumPage[akey] || 0; pg = Math.min(pg - pg % per, (pages - 1) - (pages - 1) % per); albumPage[akey] = pg;
-      let html = `<div class="between pgnav"><button class="pill pgbtn" data-pg="-1" ${pg === 0 ? 'disabled' : ''} aria-label="Página anterior">←</button>
-        <span class="pgtxt">Página ${pg + 1}${per === 2 && pg + 2 <= pages ? '–' + (pg + 2) : ''} de ${pages}</span>
-        <button class="pill pgbtn" data-pg="1" ${pg + per >= pages ? 'disabled' : ''} aria-label="Página siguiente">→</button></div><div class="spread ${albumAnim[akey] || ''}">`;
-      for (let k = pg; k < Math.min(pg + per, pages); k++) {
-        html += `<div class="page"><div class="pgnum">Página ${k + 1}</div><div class="pockets">`;
-        for (let i = 0; i < 9; i++) { const idx = k * 9 + i, e = E[idx]; html += e ? tile(e, idx, `Página ${k + 1}, bolsillo ${i + 1}`) : '<div class="tile empty"><div class="img"></div></div>'; }
-        html += '</div></div>';
-      }
-      el.innerHTML = html + '</div>';
-      const turn = d => { const nx = (albumPage[akey] || 0) + d * per; if (nx < 0 || nx >= pages) return; albumPage[akey] = nx; albumAnim[akey] = d > 0 ? 'fromR' : 'fromL'; draw(); albumAnim[akey] = ''; };
-      el.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => turn(+b.dataset.pg));
-      swipePages(el, turn);
+      renderBinder({ akey, E, tile, el, draw, ids: E.map(e => String(e.o) + ':' + e.n), label: k => '#' + k.replace(':', ' ') });
     } else {
       const idx = E.map((e, i) => i).filter(i => browseFilter === 'all' || (browseFilter === 'have') === ordenOwned(name, E[i]));
       const years = {}; idx.forEach(i => (years[E[i].d.slice(0, 4)] ||= []).push(i));
@@ -701,7 +725,7 @@ function viewOrden(name, ord) {
         return `<div class="between" style="margin:14px 0 8px"><h2>${esc(y)}</h2><span class="muted">${got}/${tot.length}</span></div><div class="grid">${is.map(i => tile(E[i], i)).join('')}</div>`; }).join('')
         || '<p class="muted">Nada que mostrar con este filtro.</p>';
     }
-    el.querySelectorAll('[data-oown]').forEach(b => b.onclick = ev => { ev.stopPropagation(); ordenToggle(name, E[+b.dataset.oown], vmap); draw(); });
+    el.querySelectorAll('[data-oown]').forEach(b => b.onclick = ev => { ev.stopPropagation(); const i = +b.dataset.oown; ordenToggle(name, E[i], vmap); if (ordenOwned(name, E[i])) toast('📒 Va en la ' + spotTxt(binderSpot(akey, i))); draw(); });
     el.querySelectorAll('[data-oi]').forEach(t => t.onclick = () => { location.hash = ordenRoute(name, E[+t.dataset.oi]); });
   };
   draw();
@@ -724,6 +748,7 @@ function viewOrdenCard(key, o) {
         ${p != null ? `<div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}</span>` : `<span class="muted">${e.cm ? 'Sin precio hoy en Cardmarket' : 'Sin precio: no está enlazada con Cardmarket'}</span>`}
         <a class="btn cmbtn" target="_blank" rel="noopener" href="${esc(cmUrl)}">Ver en Cardmarket ↗</a>
         ${e.note ? `<span class="muted" style="color:var(--down)">${esc(e.note)}</span>` : ''}
+        <span class="muted">📒 En tu archivador: ${spotTxt(binderSpot('orden:' + name, E.indexOf(e)))}</span>
         <button class="btn ${has ? 'warn' : ''}" id="stog" style="width:100%;max-width:340px">${has ? 'Quitar de la colección' : '＋ La tengo'}</button>
         <div class="row" style="flex-wrap:wrap;gap:6px;justify-content:center"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG[ik] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="oimg" accept="image/*" hidden></label>
           <button class="pill" id="ourl" style="font-size:13px">Enlace</button>${CUSTOM_IMG[ik] ? '<button class="pill" id="odel" style="font-size:13px">Quitar</button>' : ''}</div></div>
@@ -868,7 +893,8 @@ function viewCard(cardId) {
   const e = COL.cards[cardId];
   const order = q(`SELECT card_id FROM cards WHERE set_id=? ORDER BY CAST(local_id AS INTEGER), local_id`, [c.set_id]).map(r => r.card_id);
   const idx = order.indexOf(cardId), nav = cardNav(location.hash, order, c.set_id);
-  const albumPos = idx >= 0 ? `Álbum del set: página ${Math.floor(idx / 9) + 1}, bolsillo ${idx % 9 + 1}` : '';
+  const bidx = setBinderIds(c.set_id).indexOf(cardId);
+  const albumPos = bidx >= 0 ? `📒 En tu archivador: ${spotTxt(binderSpot('set:' + c.set_id, bidx))}` : '';
   let sel = ownedVariant(cardId, vs) || vs.slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0] || null;
   const draw = () => {
     const h = sel ? historyFor([sel.cm_product_id]).map(r => [r.day, (isRevHolo(sel) ? r.trend_holo_c : r.trend_c)]).filter(r => r[1] != null).map(r => [r[0], r[1] / 100]) : [];
@@ -1267,8 +1293,83 @@ function viewMore() {
 }
 
 let searchQ = '';
+/* ---------- Escanear carta: foto → lectura del número y el nombre (Tesseract, en el propio móvil) → carta ---------- */
+let TESS = null;
+function loadTess() {
+  return TESS ||= new Promise((ok, ko) => {
+    const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    sc.onload = () => Tesseract.createWorker('eng').then(ok, ko); sc.onerror = ko; document.head.append(sc);
+  }).catch(e => { TESS = null; throw e; });
+}
+const fold = t => (t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+async function photoCanvas(file) {
+  const bmp = await createImageBitmap(file), k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+  const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
+  cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+  // Franja de abajo ampliada: el número (116/086) es muy pequeño en la foto
+  const sh = Math.round(bmp.height * 0.16), z = Math.min(3, 2400 / bmp.width), st = document.createElement('canvas');
+  st.width = Math.round(bmp.width * z); st.height = Math.round(sh * z);
+  st.getContext('2d').drawImage(bmp, 0, bmp.height - sh, bmp.width, sh, 0, 0, st.width, st.height);
+  return [cv, st];
+}
+function scanParse(text) {
+  const T = text.replace(/[‘’`´]/g, "'"), nums = [], seen = new Set();
+  for (const m of T.matchAll(/(?:\b(TG|GG|RC|SV|SH))?(\d{1,3})\s*[\/|]\s*([A-Z]{0,3})\s*(\d{2,3})\b/g)) {
+    const k = (m[1] || '') + m[2] + '/' + m[4]; if (!seen.has(k)) { seen.add(k); nums.push({ pre: m[1] || '', n: parseInt(m[2], 10), tot: parseInt(m[4], 10) }); } }
+  const codes = [...new Set((T.match(/\b(?:S[VMI]?\d{1,2}[a-zA-Z]?|M\d{1,2}[a-zA-Z]?|SM\d{1,2}[a-zA-Z]?)\b/g) || []).map(x => x.toLowerCase()))];
+  const words = [...new Set(fold(T).match(/[a-zñ]{4,}/g) || [])].filter(w => !/^(pokemon|basico|basic|stage|fase|evoluciona|ilus|illus|weakness|debilidad|resistencia|retirada|retreat|damage|dano|energia|energy|trainer|entrenador)$/.test(w));
+  return { nums, codes, words };
+}
+function scanMatch(r) {
+  const sel = `SELECT c.card_id, c.set_id, c.local_id, ${NAME} name, c.name_en, c.name_es, c.image_base, s.lang, s.card_count, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name
+    FROM cards c JOIN sets s USING(set_id) WHERE s.lang IN ('es','ja') AND `;
+  let rows = [];
+  r.nums.forEach(x => { rows.push(...q(sel + `(c.local_id = ? OR (CAST(c.local_id AS INTEGER) = ? AND c.local_id GLOB '[0-9]*')) AND (s.card_count = ? OR ? = 1)`, [x.pre + String(x.n).padStart(x.pre ? 2 : 3, '0'), x.pre ? -1 : x.n, x.tot, x.pre ? 1 : 0]).map(c => Object.assign(c, { why: 2 }))); });
+  if (!rows.length && r.nums.length) r.nums.forEach(x => rows.push(...q(sel + `CAST(c.local_id AS INTEGER) = ? AND c.local_id GLOB '[0-9]*'`, [x.n])));
+  if (!rows.length && r.words.length) r.words.slice(0, 6).forEach(w => rows.push(...q(sel + `(lower(c.name_es) LIKE ? OR lower(c.name_en) LIKE ?) LIMIT 40`, ['%' + w + '%', '%' + w + '%'])));
+  const uniq = {}; rows.forEach(c => { if (uniq[c.card_id]) return; const nm = fold((c.name_es || '') + ' ' + (c.name_en || ''));
+    c.score = (c.why || 0) + r.words.filter(w => nm.includes(w)).length * 3 + (r.codes.includes(c.set_id.toLowerCase()) ? 6 : 0) + (c.lang === SETS_LANG ? 1 : 0) + (COL.cards[c.card_id] ? 0.5 : 0);
+    uniq[c.card_id] = c; });
+  return Object.values(uniq).sort((a, b) => b.score - a.score).slice(0, 8);
+}
+function scanOwn(c) {
+  if (COL.cards[c.card_id]) { COL.cards[c.card_id].qty = (COL.cards[c.card_id].qty || 1) + 1; saveCol(); toast(`Ya la tenías: ahora tienes ${COL.cards[c.card_id].qty}`); return; }
+  const v = (variantsOf([c.card_id])[c.card_id] || []).slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0];
+  COL.cards[c.card_id] = { set: c.set_id, cm: v ? v.cm_product_id : null, variant: v ? v.variant : null, qty: 1 }; saveCol();
+  const i = setBinderIds(c.set_id).indexOf(c.card_id); toast(i >= 0 ? '✓ Añadida · 📒 va en la ' + spotTxt(binderSpot('set:' + c.set_id, i)) : '✓ Añadida a tu colección');
+}
+let SCAN = null;   // último resultado, para volver a la lista desde la ficha
+function viewScan() {
+  const res = SCAN;
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/search" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1>Escanear carta</h1></div>
+    <label class="btn" style="display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer">📷 ${res ? 'Escanear otra' : 'Hacer foto a la carta'}<input type="file" id="scanf" accept="image/*" capture="environment" hidden></label>
+    <span class="muted">Foto de frente, con buena luz y sin reflejos. Que se vea bien el número de abajo (por ejemplo 116/086).</span>
+    <div id="scanout">${res ? scanResultHTML(res) : ''}</div></div>`;
+  const out = document.getElementById('scanout');
+  const wire = () => out.querySelectorAll('[data-sown]').forEach(b => b.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); scanOwn(SCAN.cands[+b.dataset.sown]); out.innerHTML = scanResultHTML(SCAN); wire(); });
+  wire();
+  document.getElementById('scanf').onchange = async ev => {
+    const f = ev.target.files[0]; if (!f) return;
+    out.innerHTML = '<p class="muted">Leyendo la carta… (la primera vez tarda un poco más: descarga el lector)</p>';
+    try {
+      const [w, [cv, st]] = await Promise.all([loadTess(), photoCanvas(f)]);
+      const a = await w.recognize(cv), b = await w.recognize(st), r = scanParse((a.data.text || '') + '\n' + (b.data.text || ''));
+      SCAN = { r, cands: scanMatch(r), thumb: cv.toDataURL('image/jpeg', 0.5) };
+      out.innerHTML = scanResultHTML(SCAN); wire();
+    } catch (e) { out.innerHTML = `<p class="muted" style="color:var(--down)">No he podido leer la foto (${esc(e.message || e)}). Comprueba la conexión la primera vez y vuelve a probar.</p>`; }
+    ev.target.value = '';
+  };
+}
+function scanResultHTML({ r, cands, thumb }) {
+  const read = [r.nums.map(x => `${x.pre}${x.n}/${x.tot}`).join(', '), r.codes.join(', ').toUpperCase(), r.words.slice(0, 4).join(' ')].filter(Boolean).join(' · ');
+  return `<div class="card row" style="gap:12px;align-items:center"><img src="${thumb}" alt="Tu foto" style="width:56px;border-radius:6px"><span class="muted">He leído: <b style="color:var(--tx)">${esc(read || 'nada claro')}</b></span></div>
+    ${cands.length ? `<h2 style="margin-top:6px">${(cands.length === 1 || (cands[0].score >= 6 && cands[0].score - cands[1].score >= 3)) ? 'Es esta' : '¿Cuál es?'}</h2>` : '<p class="muted">No encuentro ninguna carta con eso. Repite la foto más cerca del número, o búscala por nombre.</p>'}
+    <div class="list">${cands.map((c, i) => `<a class="item" href="#/card/${encodeURIComponent(c.card_id)}">${img(c.image_base, 'thumb', '', c.card_id)}
+      <div class="col" style="flex:1;min-width:0"><b>${esc(c.name)} ${COL.cards[c.card_id] ? `<span class="up">✓${COL.cards[c.card_id].qty > 1 ? '×' + COL.cards[c.card_id].qty : ''}</span>` : ''}</b><span class="muted">${esc(c.set_name)} · ${esc(c.local_id)}${c.card_count ? '/' + c.card_count : ''} · ${c.lang === 'ja' ? 'JP' : 'ES'}</span></div>
+      <button class="pill" data-sown="${i}" style="font-size:13px">${COL.cards[c.card_id] ? '+1' : 'La tengo'}</button></a>`).join('')}</div>`;
+}
 function viewSearch() {
-  $view.innerHTML = `<div class="stack"><h1>Buscar</h1><input type="search" id="s" placeholder="Nombre de la carta (español, inglés o japonés)…" value="${esc(searchQ)}" autofocus><div class="list" id="res"></div></div>`;
+  $view.innerHTML = `<div class="stack"><div class="between"><h1>Buscar</h1><a class="pill" href="#/scan" style="display:flex;align-items:center;gap:6px">📷 Escanear</a></div><input type="search" id="s" placeholder="Nombre de la carta (español, inglés o japonés)…" value="${esc(searchQ)}" autofocus><div class="list" id="res"></div></div>`;
   const inp = document.getElementById('s');
   let t = null;
   const run = () => {
@@ -1380,7 +1481,7 @@ async function syncNow(quiet) {
 }
 function mergeCols(a, b) {
   const out = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, hide: {}, setHide: {} }, a);
-  for (const k of ['cards', 'sealed', 'alerts', 'illustrators', 'sell', 'hide', 'extra']) out[k] = Object.assign({}, a[k] || {}, b[k] || {});
+  for (const k of ['cards', 'sealed', 'alerts', 'illustrators', 'sell', 'hide', 'extra', 'binders']) out[k] = Object.assign({}, a[k] || {}, b[k] || {});
   out.master = Object.assign({}, a.master || {}); for (const [id, m] of Object.entries(b.master || {})) out.master[id] = Object.assign({}, out.master[id] || {}, m);
   out.setHide = Object.assign({}, a.setHide || {}); for (const [id, l] of Object.entries(b.setHide || {})) out.setHide[id] = [...new Set([...(out.setHide[id] || []), ...l])];
   const ids = new Set((a.purchases || []).map(p => p.id)); out.purchases = (a.purchases || []).concat((b.purchases || []).filter(p => !ids.has(p.id)));
@@ -1483,7 +1584,7 @@ function route() {
   if (!DB) return;
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   const [, a, b] = h.split('/');
-  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more' }[a || ''] || 'home';
+  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', scan: 'search', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more' }[a || ''] || 'home';
   $tabs.querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
   window.scrollTo(0, 0);
   if (a === 'card' || a === 'ocard') { if (LIST_CTX && LIST_CTX.includes(location.hash)) NAV_CTX = LIST_CTX; else if (!(NAV_CTX && NAV_CTX.includes(location.hash))) NAV_CTX = null; } else LIST_CTX = null;
@@ -1502,6 +1603,7 @@ function route() {
     else if (a === 'sealeditem') viewSealedItem(b);
     else if (a === 'sell') viewSell();
     else if (a === 'buy') viewBuy();
+    else if (a === 'scan') viewScan();
     else if (a === 'more') viewMore();
     else if (a === 'settings') viewSettings();
     else viewHome();
