@@ -1,0 +1,18 @@
+name: prueba-sellado
+on:
+  push:
+    branches: [prueba-sellado]
+jobs:
+  prueba:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download datos --pattern 9bolsillos.db --repo ${{ github.repository }} || gh release download datos --pattern '*.db*' --repo ${{ github.repository }}
+          ls -la
+          python3 sellado.py --db 9bolsillos.db --out sellado.json --max 6
+          python3 -c "import json;d=json.load(open('sellado.json'));[print(k, [(f['t'],f['n']) for f in v.get('fotos',[])]) for k,v in d.items() if k!='_v' and v.get('fotos')]"
