@@ -633,7 +633,7 @@ function viewIllustrators() {
 }
 function viewIllustrator(name) {
   const ord = (window.ORDEN || {})[name.toLowerCase()];
-  if (ord && illLang === ord.lang && illOrden) return viewOrden(name, ord);
+  if (ord && illLang === ord.lang && illOrden) { viewOrden(name, ord); const sim = similarSection(name); if (sim) $view.querySelector('.stack').insertAdjacentHTML('beforeend', sim); return; }
   const cards = q(`SELECT c.card_id, c.set_id, c.local_id, ${NAME} name, c.rarity, c.image_base, s.lang, s.release_date,
     (c.name_es IS NULL AND s.lang='es' AND s.release_date >= '2019') no_es,
     COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id)
@@ -655,6 +655,7 @@ function viewIllustrator(name) {
   cardBrowser('ill:' + name + ':' + illLang, cards, vmap, document.getElementById('grid'), document.getElementById('ihead'),
     { kind: 'ill', sub: c => `${c.set_name} · ${c.local_id}${illLang === 'all' ? ' · ' + (c.lang === 'ja' ? 'JP' : c.lang.toUpperCase()) : ''}` })();
   if (HAS_EXTRA && illLang !== 'es') extraSection(name);
+  const sim = similarSection(name); if (sim) $view.querySelector('.stack').insertAdjacentHTML('beforeend', sim);
 }
 /* ---------- "Mi orden": lista hecha a mano, una carta por ilustración en orden de lanzamiento (app/orden.js) ---------- */
 // Cada carta se guarda donde ya lo hace la app: COL.cards si está en la base de datos, COL.extra si es un producto
@@ -806,7 +807,7 @@ function cardNav(hash, setOrder, setLabel) {
     ${next ? `<a class="pill" href="${next}" data-nav="next" aria-label="Carta siguiente">Siguiente ›</a>` : '<span></span>'}</div>` };
 }
 function pokeAfter(dex, nm) {
-  const fill = () => { const el = document.getElementById('pinfo'); if (!el) return; const h = pokeInfoHTML(dex, nm); if (h) { el.innerHTML = h; wirePoke(dex, nm); } else el.remove(); };
+  const fill = () => { const el = document.getElementById('pinfo'); if (!el) return; const h = pokeInfoHTML(dex, nm); if (h) { el.innerHTML = h; wirePoke(dex, nm); const hero = document.querySelector('.cardhero'); if (hero && typeGlow(dex)) hero.setAttribute('style', typeGlow(dex)); } else el.remove(); };
   if (POKE[dex] === undefined || (POKE[dex] && !POKE[dex].evo)) { if (POKE[dex]) fill(); loadPoke(dex).then(fill); } else fill();
 }
 /* ---------- avisos en bloque: todo lo que te falta de un set o de "Mi orden", con un % de bajada ---------- */
@@ -967,7 +968,7 @@ function viewCard(cardId) {
     $view.innerHTML = `<div class="stack cardpage">
       <div class="grabber" aria-hidden="true"></div>
       <div class="row"><a href="#/set/${encodeURIComponent(c.set_id)}" class="pill" id="cback" style="display:flex;align-items:center" aria-label="Volver">←</a><span class="muted">${esc(c.set_name)} · ${esc(c.local_id)}${c.card_count ? '/' + c.card_count : ''}${c.rarity && c.rarity !== 'None' ? ' · ' + esc(c.rarity) : ''}</span></div>
-      <div class="cardhero">${cardImg(c, 'high', 'hero', c.name)}
+      <div class="cardhero" style="${(!c.kind || c.kind === 'Pokemon') ? typeGlow(c.dex_id) : ''}">${cardImg(c, 'high', 'hero', c.name)}
         <h1>${esc(c.name)}</h1>${c.name_ja && c.name_ja !== c.name ? `<span class="muted">${esc(c.name_ja)}</span>` : ''}${c.name_en && c.name_en !== c.name ? `<span class="muted">${esc(c.name_en)}</span>` : ''}
         <div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}${hol ? ' (reverse holo)' : ''}${PRICE_MODE === 'low' ? ' · cualquier idioma y estado' : ''}</span>
         ${sel && sel.ambiguous ? '<span class="down" style="font-size:13px">Ojo: este precio podría corresponder a otra versión de la carta.</span>' : ''}
@@ -1256,6 +1257,7 @@ function viewSell() {
   $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center">←</a><h1>Lista de venta</h1></div>
     <div class="card col" style="gap:6px"><span class="muted">${rows.length} carta${rows.length === 1 ? '' : 's'} a la venta · lo que pides</span><div class="big">${eur(total)}</div><span class="muted">Según ${PRICE_MODE === 'low' ? 'la oferta más baja' : 'la tendencia'} de Cardmarket valdrían ${eur(sugT)}</span>
       <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="xcsv">Exportar CSV</button></div></div>
+    ${dupSection()}
     <div class="list">${rows.map(r => `<div class="item" style="flex-wrap:wrap;align-items:flex-start">${img(r.i.image_base, 'thumb', '', r.id)}<div class="col" style="flex:1;min-width:180px"><a href="#/card/${encodeURIComponent(r.id)}" style="color:var(--tx)"><b>${esc(r.i.name)} · ${esc(r.i.local_id)}</b></a><span class="muted">${esc(r.i.set_name)}${r.v ? ' · ' + esc(vLabel(r.v)) : ''}</span>
         <span style="font-size:13px">Sugerido ${eur(r.sug)} · mínimo publicado ${eur(r.low)}</span>
         <div class="row" style="flex-wrap:wrap;margin-top:6px">
@@ -1266,6 +1268,7 @@ function viewSell() {
         <div class="row" style="flex-wrap:wrap;margin-top:6px"><button class="pill" data-wall="${esc(r.id)}">Copiar texto para Wallapop</button><button class="pill" data-sold="${esc(r.id)}">Vendida</button><button class="pill" data-rm="${esc(r.id)}">Quitar</button></div></div></div>`).join('') || '<p class="muted">No tienes cartas a la venta. Abre una carta de tu colección y pulsa "Poner a la venta".</p>'}</div>
     <p class="muted">El CSV lleva nombre, set, número, rareza, versión, idioma, estado, cantidad y precio, y lo puedes abrir en Excel. Si me pasas un ejemplo del formato que pide Cardmarket para subir stock, lo adapto exactamente.</p></div>`;
   const upd = (attr, key, conv) => $view.querySelectorAll(`[${attr}]`).forEach(i => i.onchange = () => { const id = i.getAttribute(attr); COL.sell[id][key] = conv(i.value); saveCol(); viewSell(); });
+  wireDup();
   upd('data-sp', 'price', parseNum); upd('data-sqty', 'qty', v => Math.max(1, parseInt(v, 10) || 1)); upd('data-sc', 'cond', v => v); upd('data-sl', 'lang', v => v);
   $view.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { delete COL.sell[b.dataset.rm]; saveCol(); viewSell(); });
   $view.querySelectorAll('[data-sold]').forEach(b => b.onclick = () => {
@@ -1341,9 +1344,165 @@ function viewBuy() {
     it.own(); COL.purchases.push({ id: Date.now(), date: new Date().toISOString().slice(0, 10), type: 'single', desc: it.name + ' · ' + it.sub, qty: 1, price, shop: 'Cardmarket' });
     saveCol(); toast('Añadida a tu colección y a tus gastos'); viewBuy(); });
 }
+/* ---------- colores de tipo (Pokédex en español y tipos del juego de cartas) ---------- */
+const TYPE_COLOR = { Normal: '#A8A77A', Fuego: '#EE8130', Agua: '#6390F0', Planta: '#7AC74C', 'Eléctrico': '#F7D02C', Hielo: '#96D9D6', Lucha: '#C22E28', Veneno: '#A33EA1',
+  Tierra: '#E2BF65', Volador: '#A98FF3', 'Psíquico': '#F95587', Bicho: '#A6B91A', Roca: '#B6A136', Fantasma: '#735797', 'Dragón': '#6F35FC', Siniestro: '#705746', Acero: '#B7B7CE', Hada: '#D685AD' };
+const TCG_TYPE = { Grass: ['Planta', '#7AC74C'], Fire: ['Fuego', '#EE8130'], Water: ['Agua', '#6390F0'], Lightning: ['Rayo', '#F7D02C'], Psychic: ['Psíquico', '#A66FD6'], Fighting: ['Lucha', '#C8743B'],
+  Darkness: ['Oscuridad', '#4B5A6B'], Metal: ['Metal', '#9AA7B5'], Fairy: ['Hada', '#E58BC4'], Dragon: ['Dragón', '#C2A33E'], Colorless: ['Incoloro', '#C9C9C0'] };
+// Halo del color del tipo detrás de la carta
+function typeGlow(dex) {
+  const p = dex && POKE[dex], t = p && p.types && p.types.map(x => TYPE_COLOR[x]).filter(Boolean);
+  if (!t || !t.length) return '';
+  const a = t[0], b = t[1] || t[0];
+  return `background:radial-gradient(ellipse 70% 55% at 35% 40%, ${a}88, transparent 70%),radial-gradient(ellipse 70% 55% at 65% 60%, ${b}77, transparent 72%)`;
+}
+
+/* ---------- ilustradores que suelen aparecer en los mismos sets y en la misma época ---------- */
+const SIMILAR = {};
+function similarIllustrators(name) {
+  const k = name.toLowerCase() + '|' + illLang;
+  if (SIMILAR[k]) return SIMILAR[k];
+  const cond = langCond(illLang);
+  const mine = q(`SELECT DISTINCT c.set_id FROM cards c JOIN sets s USING(set_id) WHERE c.illustrator = ? COLLATE NOCASE AND ${cond}`, [name]).map(r => r.set_id);
+  if (!mine.length) return (SIMILAR[k] = []);
+  const ph = mine.map(() => '?').join(',');
+  const rows = q(`SELECT c.illustrator, COUNT(DISTINCT c.set_id) common, COUNT(*) n FROM cards c WHERE c.set_id IN (${ph}) AND c.illustrator IS NOT NULL AND c.illustrator != ? COLLATE NOCASE
+    AND c.illustrator NOT LIKE '%Graphics%' AND c.illustrator NOT LIKE '%Ltd%' AND c.illustrator NOT LIKE '%Inc.%' AND c.illustrator NOT LIKE '%,%' AND c.illustrator NOT LIKE '%/%' GROUP BY c.illustrator HAVING common >= 3`, [...mine, name]);
+  if (!rows.length) return (SIMILAR[k] = []);
+  const tot = {}; q(`SELECT c.illustrator, COUNT(DISTINCT c.set_id) t FROM cards c JOIN sets s USING(set_id) WHERE ${cond} AND c.illustrator IN (${rows.map(() => '?').join(',')}) GROUP BY c.illustrator`, rows.map(r => r.illustrator)).forEach(r => tot[r.illustrator] = r.t);
+  return (SIMILAR[k] = rows.map(r => ({ name: r.illustrator, common: r.common, score: r.common / Math.sqrt((tot[r.illustrator] || r.common) * mine.length) }))
+    .sort((a, b) => b.score - a.score).slice(0, 8));
+}
+function similarSection(name) {
+  const l = similarIllustrators(name);
+  if (!l.length) return '';
+  return `<div class="card col" style="gap:8px"><b>Si te gusta ${esc(name)}…</b><span class="muted">Ilustradores que más coinciden con su época y sus sets.</span>
+    <div class="row" style="flex-wrap:wrap;gap:8px">${l.map(x => `<a class="pill" href="#/illustrator/${encodeURIComponent(x.name)}">${esc(x.name)} <span class="muted">· ${x.common} sets</span></a>`).join('')}</div></div>`;
+}
+
+/* ---------- Tu colección en números ---------- */
+const COLS = {};
+const hasCol = (t, c) => (COLS[t] ||= q(`PRAGMA table_info(${t})`).map(r => r.name)).includes(c);
+function viewStats() {
+  const ids = Object.keys(COL.cards), vm = variantsOf(ids);
+  const rows = ids.length ? q(`SELECT c.card_id, ${NAME} name, c.illustrator, c.dex_id, ${hasCol('cards', 'ptype') ? 'c.ptype' : 'NULL ptype'}, ${hasCol('cards', 'kind') ? 'c.kind' : 'NULL kind'}, c.image_base, c.local_id, s.release_date, s.lang, c.set_id, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name
+    FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${ids.map(() => '?').join(',')})`, ids) : [];
+  if (!rows.length) { $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1>Tu colección en números</h1></div><p class="muted">Aún no tienes cartas en tu colección.</p></div>`; return; }
+  const qty = id => COL.cards[id].qty || 1;
+  let copies = 0, value = 0; const price = {};
+  rows.forEach(r => { const p = vPrice(ownedVariant(r.card_id, vm[r.card_id])); price[r.card_id] = p; copies += qty(r.card_id); value += cardValue(r.card_id, p) || 0; });
+  const count = (f, filt = () => true) => { const m = {}; rows.filter(filt).forEach(r => { const k = f(r); if (k != null && k !== '') m[k] = (m[k] || 0) + qty(r.card_id); }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
+  const top = rows.filter(r => price[r.card_id] != null).sort((a, b) => price[b.card_id] - price[a.card_id])[0];
+  const ill = count(r => r.illustrator), types = count(r => r.ptype), dex = count(r => r.dex_id, r => r.dex_id && (!r.kind || r.kind === 'Pokemon'));
+  const years = count(r => (r.release_date || '').slice(0, 4)), oldest = rows.slice().sort((a, b) => (a.release_date || '9') < (b.release_date || '9') ? -1 : 1)[0];
+  const bySet = {}; rows.forEach(r => (bySet[r.set_id] ||= { name: r.set_name, n: 0, lang: r.lang }).n++);
+  const sets = Object.entries(bySet).filter(([, v]) => v.lang === 'es').map(([id, v]) => ({ id, ...v, tot: setBinderIds(id).length })).filter(x => x.tot).map(x => ({ ...x, pc: Math.min(100, Math.round(x.n / x.tot * 100)) })).sort((a, b) => b.pc - a.pc).slice(0, 3);
+  const spent = (COL.purchases || []).reduce((t, p) => t + (p.price || 0) * (p.type === 'single' ? 1 : (p.qty || 1)), 0);
+  const tmax = types.length ? types[0][1] : 1, ymax = years.length ? Math.max(...years.map(y => y[1])) : 1;
+  const topDex = dex[0], topDexName = topDex ? dexName(+topDex[0], '') : '';
+  const S = (grad, inner) => `<div class="stat" style="background:${grad}">${inner}</div>`;
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1>Tu colección en números</h1></div>
+    ${S('linear-gradient(135deg,#1f6f5c,#0f2f3a)', `<span class="sk">Tienes</span><span class="sv">${copies.toLocaleString('es-ES')} cartas</span><span class="sk">${rows.length.toLocaleString('es-ES')} distintas · valen ${eur(value)}${spent ? ` · has gastado ${eur(spent)}` : ''}</span>`)}
+    ${top ? S('linear-gradient(135deg,#7a4b12,#2b1a08)', `<div class="row" style="gap:14px;align-items:center"><a href="#/card/${encodeURIComponent(top.card_id)}" style="width:96px;flex:none">${cardImg(top, 'low', 'hero', top.name)}</a><div class="col"><span class="sk">Tu carta más cara</span><span class="sv">${esc(top.name)}</span><span class="sk">${esc(top.set_name)} · ${eur(price[top.card_id])}</span></div></div>`) : ''}
+    ${ill.length ? S('linear-gradient(135deg,#4a2a7a,#1a1030)', `<span class="sk">Tu ilustrador más repetido</span><a class="sv" style="color:#fff" href="#/illustrator/${encodeURIComponent(ill[0][0])}">${esc(ill[0][0])} →</a><span class="sk">${ill[0][1]} cartas${ill[1] ? ` · después ${esc(ill[1][0])} (${ill[1][1]})${ill[2] ? ` y ${esc(ill[2][0])} (${ill[2][1]})` : ''}` : ''}</span>`) : ''}
+    ${topDex ? S('linear-gradient(135deg,#1c4f8a,#0b1d33)', `<div class="row" style="gap:14px;align-items:center"><a href="#/dex/${topDex[0]}" style="width:96px;height:96px;display:flex;align-items:center;justify-content:center;flex:none">${spriteTag(+topDex[0], false, 'anim', topDexName)}</a><div class="col"><span class="sk">El Pokémon que más tienes</span><span class="sv">${esc(topDexName)}</span><span class="sk">${topDex[1]} cartas${dex[1] ? ` · después ${esc(dexName(+dex[1][0], ''))} (${dex[1][1]})` : ''}</span></div></div>`) : ''}
+    ${types.length ? S('linear-gradient(135deg,#2d3a1a,#11160a)', `<span class="sk">Tu tipo favorito</span><span class="sv">${esc((TCG_TYPE[types[0][0]] || [types[0][0]])[0])}</span>
+      <div class="col" style="gap:5px;margin-top:8px">${types.slice(0, 6).map(([t, n]) => `<div class="row" style="gap:8px;align-items:center"><span style="width:78px;font-size:13px">${esc((TCG_TYPE[t] || [t])[0])}</span><div style="flex:1;height:10px;border-radius:5px;background:#ffffff14"><div style="width:${n / tmax * 100}%;height:100%;border-radius:5px;background:${(TCG_TYPE[t] || [, '#999'])[1]}"></div></div><span style="width:34px;text-align:right;font-size:13px">${n}</span></div>`).join('')}</div>`) : ''}
+    ${years.length ? S('linear-gradient(135deg,#6b1f3a,#2a0c17)', `<span class="sk">Tu año favorito</span><span class="sv">${esc(years[0][0])}</span><span class="sk">${years[0][1]} cartas salieron ese año</span>
+      <div class="years">${years.slice().sort((a, b) => a[0] - b[0]).map(([y, n]) => `<div title="${y}: ${n}" style="height:${Math.max(4, n / ymax * 56)}px;${y === years[0][0] ? 'background:#fff' : ''}"></div>`).join('')}</div>`) : ''}
+    ${oldest ? S('linear-gradient(135deg,#3b3b3b,#141414)', `<div class="row" style="gap:14px;align-items:center"><a href="#/card/${encodeURIComponent(oldest.card_id)}" style="width:80px;flex:none">${cardImg(oldest, 'low', 'hero', oldest.name)}</a><div class="col"><span class="sk">Tu carta más antigua</span><span class="sv">${esc(oldest.name)}</span><span class="sk">${esc(oldest.set_name)} · ${esc((oldest.release_date || '').slice(0, 4))}</span></div></div>`) : ''}
+    ${sets.length ? S('linear-gradient(135deg,#145a4a,#08201b)', `<span class="sk">Tus sets más completos</span>${sets.map(x => `<a href="#/set/${encodeURIComponent(x.id)}" style="color:#fff" class="col"><div class="between" style="margin-top:8px"><b>${esc(x.name)}</b><b>${x.pc} %</b></div><div style="height:8px;border-radius:4px;background:#ffffff1f"><div style="width:${x.pc}%;height:100%;border-radius:4px;background:#3DDC97"></div></div><span class="sk">${x.n} de ${x.tot}</span></a>`).join('')}`) : ''}
+  </div>`;
+}
+
+/* ---------- Modo enseñar: tus archivadores a pantalla completa, sin precios ni botones ---------- */
+function showBinders() {
+  const out = [];
+  const ids = Object.keys(COL.cards);
+  if (ids.length) q(`SELECT c.set_id, COUNT(*) n, COALESCE(s.name_es,s.name_en) name, s.release_date FROM cards c JOIN sets s USING(set_id) WHERE s.lang = 'es' AND c.card_id IN (${ids.map(() => '?').join(',')}) GROUP BY c.set_id ORDER BY n DESC`, ids)
+    .forEach(r => out.push({ k: 'set:' + r.set_id, label: r.name, sub: `${r.n} cartas` }));
+  for (const [key, ord] of Object.entries(window.ORDEN || {})) {
+    const name = (q(`SELECT illustrator FROM cards WHERE illustrator = ? COLLATE NOCASE LIMIT 1`, [key])[0] || {}).illustrator || key;
+    const { E } = ordenData(ord), n = E.filter(e => ordenOwned(name, e)).length;
+    if (n) out.unshift({ k: 'orden:' + name, label: 'Mi orden · ' + name, sub: `${n} de ${E.length}` });
+  }
+  return out;
+}
+function showPages(k) {   // [{img, empty}] en orden físico, con los bolsillos libres del principio
+  const off = ((COL.binders || {})[k] || {}).off || 0, pockets = Array(off).fill(null);
+  if (k.startsWith('set:')) {
+    const ids = setBinderIds(k.slice(4)), info = {};
+    q(`SELECT c.card_id, c.set_id, c.local_id, c.image_base, ${NAME} name, s.region FROM cards c JOIN sets s USING(set_id) WHERE c.set_id = ?`, [k.slice(4)]).forEach(r => info[r.card_id] = r);
+    ids.forEach(id => pockets.push(COL.cards[id] && info[id] ? cardImg(info[id], 'high', '', info[id].name) : null));
+  } else {
+    const name = k.slice(6), ord = (window.ORDEN || {})[name.toLowerCase()];
+    if (ord) ordenData(ord).E.forEach(e => pockets.push(ordenOwned(name, e) ? ordenImg(e, '', name) : null));
+  }
+  return pockets;
+}
+let SHOW_PG = {};
+function viewShow(k) {
+  document.body.classList.remove('showmode');
+  if (!k) {
+    const l = showBinders();
+    $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1>Enseñar colección</h1></div>
+      <span class="muted">Elige un archivador. Se abre a pantalla completa, sin precios ni botones: desliza para pasar páginas y toca la ✕ para salir.</span>
+      <div class="list">${l.map(x => `<a class="item" href="#/show/${encodeURIComponent(x.k)}"><div class="col" style="flex:1"><b>${esc(x.label)}</b><span class="muted">${esc(x.sub)}</span></div>▶</a>`).join('') || '<p class="muted">Marca cartas de algún set o de Mi orden y aparecerán aquí.</p>'}</div></div>`;
+    return;
+  }
+  const P = showPages(k), pages = Math.max(1, Math.ceil(P.length / 9)), label = (showBinders().find(x => x.k === k) || { label: '' }).label;
+  document.body.classList.add('showmode');
+  try { const d = document.documentElement; if (d.requestFullscreen && !document.fullscreenElement) d.requestFullscreen().catch(() => {}); } catch (e) {}
+  const draw = (dir = '') => {
+    let pg = Math.min(SHOW_PG[k] || 0, pages - 1); SHOW_PG[k] = pg;
+    let html = '';
+    for (let i = 0; i < 9; i++) { const c = P[pg * 9 + i]; html += `<div class="spk ${c ? '' : 'none'}"><div class="pk">${c || ''}</div></div>`; }
+    $view.innerHTML = `<div class="show"><div class="showtop"><span>${esc(label)} · página ${pg + 1} de ${pages}</span><button class="pill" id="showx" aria-label="Salir">✕</button></div>
+      <div class="showpage spread ${dir}">${html}</div></div>`;
+    document.getElementById('showx').onclick = () => { document.body.classList.remove('showmode'); try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {} location.hash = '#/show'; };
+    swipePages($view.querySelector('.show'), d => { const nx = (SHOW_PG[k] || 0) + d; if (nx < 0 || nx >= pages) return; SHOW_PG[k] = nx; draw(d > 0 ? 'fromR' : 'fromL'); });
+  };
+  draw();
+}
+
+/* ---------- Repetidas: lo que tienes más de una vez y no está ya a la venta ---------- */
+function dupRows() {
+  const ids = Object.keys(COL.cards).filter(id => (COL.cards[id].qty || 1) - ((COL.sell[id] || {}).qty || 0) > 1);
+  if (!ids.length) return [];
+  const vm = variantsOf(ids), info = {};
+  q(`SELECT c.card_id, ${NAME} name, c.local_id, c.image_base, s.card_count, s.region, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => info[r.card_id] = r);
+  return ids.filter(id => info[id]).map(id => { const v = ownedVariant(id, vm[id]); return { id, i: info[id], v, extra: (COL.cards[id].qty || 1) - ((COL.sell[id] || {}).qty || 0) - 1, sug: vPrice(v) }; })
+    .sort((a, b) => (b.sug || 0) - (a.sug || 0));
+}
+function dupToSell(r) {
+  const s = COL.sell[r.id];
+  if (s) s.qty = (s.qty || 1) + r.extra;
+  else COL.sell[r.id] = { qty: r.extra, price: r.sug != null ? Math.round(r.sug * 100) / 100 : null, cond: 'NM', lang: r.i.region === 'asia' ? 'JP' : 'ES', cm: r.v ? r.v.cm_product_id : null, variant: r.v ? r.v.variant : null };
+}
+function dupSection() {
+  const D = dupRows();
+  if (!D.length) return '';
+  const tot = D.reduce((t, r) => t + (r.sug || 0) * r.extra, 0);
+  return `<div class="card col" style="gap:8px"><div class="between"><b>Repetidas (${D.reduce((t, r) => t + r.extra, 0)})</b><b>${eur(tot)}</b></div>
+    <span class="muted">Copias que tienes de más (te quedas una de cada) y aún no están a la venta.</span>
+    <div class="list">${D.slice(0, 40).map(r => `<div class="item">${img(r.i.image_base, 'thumb', '', r.id)}<div class="col" style="flex:1;min-width:0"><a href="#/card/${encodeURIComponent(r.id)}" style="color:var(--tx)"><b>${esc(r.i.name)} · ${esc(r.i.local_id)}</b></a><span class="muted">${esc(r.i.set_name)} · ${r.extra} de más · ${eur(r.sug)} c/u</span></div><button class="pill" data-dup="${esc(r.id)}" style="font-size:13px">A la venta</button></div>`).join('')}</div>
+    <div class="row" style="flex-wrap:wrap"><button class="btn" id="dupall">Poner todas a la venta</button><button class="btn sec" id="dupwall">Copiar lista para Wallapop</button></div></div>`;
+}
+function wireDup() {
+  const D = dupRows();
+  $view.querySelectorAll('[data-dup]').forEach(b => b.onclick = () => { const r = D.find(x => x.id === b.dataset.dup); if (r) { dupToSell(r); saveCol(); toast('Puesta a la venta'); viewSell(); } });
+  const all = document.getElementById('dupall'); if (all) all.onclick = () => { D.forEach(dupToSell); saveCol(); toast(`${D.length} cartas puestas a la venta`); viewSell(); };
+  const w = document.getElementById('dupwall'); if (w) w.onclick = async () => {
+    const t = 'Vendo cartas Pokémon repetidas (en perfecto estado, de funda directa):\n\n' + D.map(r => `· ${r.i.name} ${r.i.local_id}${r.i.card_count ? '/' + r.i.card_count : ''} (${r.i.set_name}, ${r.i.region === 'asia' ? 'japonés' : 'español'})${r.extra > 1 ? ' ×' + r.extra : ''} — ${eur(r.sug)}`).join('\n') + '\n\nEnvío protegido con top loader. Pregunta por packs.';
+    try { await navigator.clipboard.writeText(t); toast('Lista copiada'); } catch (e) { prompt('Copia el texto:', t); }
+  };
+}
+
 function viewMore() {
   const n = k => Object.keys(COL[k] || {}).length;
   $view.innerHTML = `<div class="stack"><h1>Más</h1><div class="list">
+    <a class="item" href="#/stats"><div class="col" style="flex:1"><b>Tu colección en números</b><span class="muted">Tu ilustrador, tu Pokémon y tu año favoritos, tu carta más cara…</span></div>→</a>
+    <a class="item" href="#/show"><div class="col" style="flex:1"><b>Enseñar colección</b><span class="muted">Tus archivadores a pantalla completa, sin precios</span></div>→</a>
     <a class="item" href="#/buy"><div class="col" style="flex:1"><b>Qué comprar este mes</b><span class="muted">Reparte tu presupuesto entre lo que te falta</span></div>→</a>
     <a class="item" href="#/expenses"><div class="col" style="flex:1"><b>Gastos</b><span class="muted">${COL.purchases.length} compras apuntadas · gasto por mes y valor actual</span></div>→</a>
     <a class="item" href="#/sealed"><div class="col" style="flex:1"><b>Sellado</b><span class="muted">${n('sealed')} producto${n('sealed') === 1 ? '' : 's'} · precio de compra frente a precio actual</span></div>→</a>
@@ -1644,9 +1803,10 @@ function route() {
   if (!DB) return;
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   const [, a, b] = h.split('/');
-  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', scan: 'search', dex: 'sets', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more' }[a || ''] || 'home';
+  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', scan: 'search', dex: 'sets', stats: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more' }[a || ''] || 'home';
   $tabs.querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
   window.scrollTo(0, 0);
+  if (a !== 'show' || !b) document.body.classList.remove('showmode');
   if (a === 'card' || a === 'ocard') { if (LIST_CTX && LIST_CTX.includes(location.hash)) NAV_CTX = LIST_CTX; else if (!(NAV_CTX && NAV_CTX.includes(location.hash))) NAV_CTX = null; } else LIST_CTX = null;
   try {
     if (!a) viewHome();
@@ -1665,6 +1825,8 @@ function route() {
     else if (a === 'buy') viewBuy();
     else if (a === 'scan') viewScan();
     else if (a === 'dex') viewDex(+b);
+    else if (a === 'stats') viewStats();
+    else if (a === 'show') viewShow(b ? decodeURIComponent(b) : '');
     else if (a === 'more') viewMore();
     else if (a === 'settings') viewSettings();
     else viewHome();
