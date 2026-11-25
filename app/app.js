@@ -133,15 +133,41 @@ const realAge = r => r ? Math.max(0, Math.round((Date.now() - new Date(r.d + 'T1
 const realFresh = r => r && realAge(r) <= REAL_DAYS;
 const ageTxt = n => n === 0 ? 'hoy' : n === 1 ? 'ayer' : `hace ${n} días`;
 function realLabel(r) { return r ? `Oferta más baja ${r.l || 'ES'} (${r.c === 'ANY' ? 'cualquier estado' : (r.c || 'NM') + ' o mejor'}) · ${ageTxt(realAge(r))}` : ''; }
-// Escribir a mano la oferta más baja que ves en Cardmarket (vacío o 0 = quitar el precio real)
-function askRealPrice(cm, rev, lang, after) {
-  const k = realKey(cm, rev), cur = (COL.real || {})[k];
-  const v = prompt(`Oferta más baja en ${lang === 'JP' ? 'japonés' : 'español'} que ves en Cardmarket (€)${rev ? ' · reverse holo' : ''}.\nDéjalo vacío para quitar tu precio real.`, cur ? String(cur.p).replace('.', ',') : '');
-  if (v === null) return;
-  const p = parseFloat(String(v).replace(/\s|€/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+// Guardar a mano la oferta más baja que ves en Cardmarket (vacío o 0 = quitar el precio real)
+function saveReal(cm, rev, lang, txt) {
+  const k = realKey(cm, rev), p = parseFloat(String(txt || '').replace(/\s|€/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
   COL.real ||= {};
-  if (!(p > 0)) { delete COL.real[k]; saveCol(); toast('Precio real quitado'); after(); return; }
-  COL.real[k] = { p: Math.round(p * 100) / 100, d: todayISO(), l: lang, c: 'NM' }; saveCol(); toast('Precio real guardado'); after();
+  if (!(p > 0)) { if (COL.real[k]) { delete COL.real[k]; saveCol(); toast('Precio real quitado'); } return false; }
+  COL.real[k] = { p: Math.round(p * 100) / 100, d: todayISO(), l: lang, c: 'NM' }; saveCol(); toast('Precio real guardado: ' + eur(COL.real[k].p)); return true;
+}
+function askRealPrice(cm, rev, lang, after) { realSheet({ cm, rev, lang, after }, false); }
+// Hoja para escribir el precio. Se abre sola al volver de Cardmarket (armAskReal) o con el botón ✏️
+let ASK_REAL = null;
+function armAskReal(cm, rev, lang) { if (cm) ASK_REAL = { cm, rev, lang, at: Date.now(), hash: location.hash }; }
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !ASK_REAL) return;
+  const a = ASK_REAL; ASK_REAL = null;
+  if (Date.now() - a.at > 20 * 60e3 || location.hash !== a.hash) return;
+  setTimeout(() => realSheet(a, true), 350);
+});
+function realSheet(a, back) {
+  document.querySelectorAll('.rsheet').forEach(x => x.remove());
+  const cur = (COL.real || {})[realKey(a.cm, a.rev)], lg = a.lang === 'JP' ? 'japonés' : 'español';
+  const d = document.createElement('div'); d.className = 'rsheet';
+  d.innerHTML = `<div class="rsbox" role="dialog" aria-label="Precio real"><b style="font-size:18px">${back ? '¿Cuál era la oferta más baja?' : 'Precio real'}</b>
+    <span class="muted">En ${lg}${a.rev ? ', reverse holo' : ''}, la más barata que has visto en Cardmarket.</span>
+    <div class="row" style="gap:8px;align-items:center"><input id="rsin" type="text" inputmode="decimal" placeholder="Ej.: 115,00" value="${cur ? String(cur.p).replace('.', ',') : ''}" style="flex:1;font-size:22px"><b style="font-size:20px">€</b></div>
+    <div class="row" style="gap:8px"><button class="btn" id="rsok" style="flex:1">Guardar</button><button class="btn sec" id="rsno">${back ? 'Ahora no' : 'Cancelar'}</button></div>
+    ${cur ? '<button class="pill" id="rsdel" style="align-self:flex-start;font-size:13px">Quitar mi precio real</button>' : ''}</div>`;
+  document.body.appendChild(d);
+  const inp = d.querySelector('#rsin'), close = () => d.remove();
+  const done = () => { if (a.after) a.after(); else if (DB && location.hash === a.hash) route(); };
+  d.onclick = ev => { if (ev.target === d) close(); };
+  d.querySelector('#rsno').onclick = close;
+  d.querySelector('#rsok').onclick = () => { if (saveReal(a.cm, a.rev, a.lang, inp.value)) { close(); done(); } else inp.focus(); };
+  inp.onkeydown = ev => { if (ev.key === 'Enter') d.querySelector('#rsok').click(); };
+  const del = d.querySelector('#rsdel'); if (del) del.onclick = () => { saveReal(a.cm, a.rev, a.lang, ''); close(); done(); };
+  try { inp.focus(); } catch (e) {}
 }
 function vPrice(v) {
   if (!v) return null;
@@ -776,7 +802,7 @@ function viewOrdenCard(key, o) {
       <div class="cardhero">${ordenImg(e, 'hero', name) || `<div class="hero" style="display:flex;align-items:center;justify-content:center;padding:12px;text-align:center">${esc(e.n)}<br>Sin foto</div>`}
         <h1>${esc(e.n)}</h1><span class="muted">${esc(e.s)} · ${esc(e.no)} · ${esc(e.d)}</span>
         ${p != null ? `<div class="big">${eur(p)}</div>${realFresh(realOf(e.cm)) ? `<span class="realtag">✓ ${esc(realLabel(realOf(e.cm)))}</span>` : `<span class="muted">${PRICE_LABEL()}</span>`}` : `<span class="muted">${e.cm ? 'Sin precio hoy en Cardmarket' : 'Sin precio: no está enlazada con Cardmarket'}</span>`}
-        <a class="btn cmbtn" target="_blank" rel="noopener" href="${esc(cmUrl)}">Ver en Cardmarket ↗</a>
+        <a class="btn cmbtn" id="ocmgo" target="_blank" rel="noopener" href="${esc(cmUrl)}">Ver en Cardmarket ↗</a>
         ${e.cm ? `<button class="pill" id="orealset" style="font-size:14px">✏️ ${realFresh(realOf(e.cm)) ? 'Cambiar' : 'Poner'} precio real</button>` : ''}
         ${e.note ? `<span class="muted" style="color:var(--down)">${esc(e.note)}</span>` : ''}
         <span class="muted">📒 En tu archivador: ${spotTxt(binderSpot('orden:' + name, E.indexOf(e)))}</span>
@@ -791,6 +817,7 @@ function viewOrdenCard(key, o) {
     const od = document.getElementById('odel'); if (od) od.onclick = async () => { delete CUSTOM_IMG[ik]; await idbDel('img:' + ik); imgsDirty = true; saveCol(); paint(); };
     document.getElementById('stog').onclick = () => { ordenToggle(name, e, vmap); paint(); };
     const ors = document.getElementById('orealset'); if (ors) ors.onclick = () => askRealPrice(e.cm, false, 'JP', paint);
+    const ocg = document.getElementById('ocmgo'); if (ocg && e.cm) ocg.addEventListener('click', () => armAskReal(e.cm, false, 'JP'));
   };
   paint();
   if (dex) pokeAfter(dex, e.n);
@@ -1005,7 +1032,7 @@ function viewCard(cardId) {
           ? `<span class="realtag">✓ ${esc(realLabel(r))}${hol ? ' · reverse holo' : ''}</span>`
           : `<span class="muted">${PRICE_LABEL()}${hol ? ' (reverse holo)' : ''}${PRICE_MODE === 'low' ? ' · cualquier idioma y estado' : ''}${r ? ` · tu precio real es antiguo (${ageTxt(realAge(r))})` : ''}</span>`; })()}
         ${sel && sel.ambiguous ? '<span class="down" style="font-size:13px">Ojo: este precio podría corresponder a otra versión de la carta.</span>' : ''}
-        ${sel ? `<a class="btn cmbtn" target="_blank" rel="noopener" href="${cmLink(sel, c)}">Ver en Cardmarket ↗</a>` : ''}
+        ${sel ? `<a class="btn cmbtn" id="cmgo" target="_blank" rel="noopener" href="${cmLink(sel, c)}">Ver en Cardmarket ↗</a>` : ''}
         ${sel && sel.cm_product_id ? `<button class="pill" id="realset" style="font-size:14px">✏️ ${realFresh(realOf(sel.cm_product_id, hol)) ? 'Cambiar' : 'Poner'} precio real</button>` : ''}
         ${vs.length > 1 ? `<label class="f" style="width:100%;max-width:340px;text-align:left">Versión<select id="vsel">${vs.map((v, i) => `<option value="${i}" ${v === sel ? 'selected' : ''}>${esc(vLabel(v))} — ${eur(vPrice(v))}</option>`).join('')}</select></label>` : `<span class="muted">${sel ? esc(vLabel(sel)) : 'Sin precio en Cardmarket'}</span>`}
         ${c.illustrator ? `<a href="#/illustrator/${encodeURIComponent(c.illustrator)}" style="font-size:14px">Ilustración: ${esc(c.illustrator)} →</a>` : ''}${albumPos ? `<span class="muted">${albumPos}</span>` : ''}
@@ -1046,6 +1073,7 @@ function viewCard(cardId) {
     const hc = document.getElementById('hidecard'); if (hc) hc.onclick = () => { COL.hide ||= {}; if (COL.hide[cardId]) delete COL.hide[cardId]; else COL.hide[cardId] = 1; saveCol(); toast(COL.hide[cardId] ? 'Oculta del set' : 'Visible de nuevo'); viewCard(cardId); };
     const ci = document.getElementById('cimg'); if (ci) ci.onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const u = await resizeImage(f); CUSTOM_IMG[cardId] = u; await idbPut('img:' + cardId, u); imgsDirty = true; saveCol(); toast('Imagen guardada'); draw(); } catch (e) { alert(e.message); } };
     const rs = document.getElementById('realset'); if (rs) rs.onclick = () => askRealPrice(sel.cm_product_id, hol, c.region === 'asia' ? 'JP' : 'ES', draw);
+    const cg = document.getElementById('cmgo'); if (cg && sel && sel.cm_product_id) cg.addEventListener('click', () => armAskReal(sel.cm_product_id, hol, c.region === 'asia' ? 'JP' : 'ES'));
     const cu = document.getElementById('curl'); if (cu) cu.onclick = async () => { const u = prompt('Pega el enlace de una imagen de la carta (https://…)'); if (!u || !/^https:\/\//.test(u.trim())) return; CUSTOM_IMG[cardId] = u.trim(); await idbPut('img:' + cardId, u.trim()); imgsDirty = true; saveCol(); draw(); };
     const cd = document.getElementById('cdel'); if (cd) cd.onclick = async () => { delete CUSTOM_IMG[cardId]; await idbDel('img:' + cardId); imgsDirty = true; saveCol(); draw(); };
     const vsel = document.getElementById('vsel'); if (vsel) vsel.onchange = () => { sel = vs[+vsel.value]; if (COL.cards[cardId]) { COL.cards[cardId].cm = sel.cm_product_id; COL.cards[cardId].variant = sel.variant; saveCol(); } draw(); };
