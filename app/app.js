@@ -40,7 +40,16 @@ const LOGO_ERR = "var l=(this.dataset.fb||'').split('|').filter(Boolean);if(l.le
 const CM_LANG = { int: 4, asia: 7 }, CM_COND = { MT: 1, NM: 2, EX: 3, GD: 4, LP: 5, PL: 6, PO: 7 };
 const cmCond = () => { try { return localStorage.getItem('cm_cond') || 'NM'; } catch (e) { return 'NM'; } };
 const cmFilter = region => `language=${CM_LANG[region] || 4}&minCondition=${CM_COND[cmCond()] || 2}`;
-function cmProductLink(cm, region, rev) { return `https://www.cardmarket.com/es/Pokemon/Products?idProduct=${cm}&${cmFilter(region)}${rev ? '&isReverseHolo=Y' : ''}`; }
+// Cardmarket solo acepta sin sesión la dirección "bonita" de la carta (…/Singles/Set/Carta-V3-CRI116). 9B la aprende del Atajo.
+const toSafari = u => (/iPad|iPhone|iPod/.test(navigator.userAgent) ? u.replace(/^https:\/\//, 'x-safari-https://') : u);   // en iPhone, abrir en Safari (donde tienes la sesión), no en el navegador interno
+function cmProductLink(cm, region, rev) {
+  const saved = (COL.cmurl || {})[cm];
+  if (saved) return toSafari(`${saved}?${cmFilter(region)}${rev ? '&isReverseHolo=Y' : ''}`);
+  // Aún sin dirección guardada: búsqueda por nombre en Safari (la primera vez entras tú en la carta y usas el Atajo)
+  const nm = ((q('SELECT name FROM cm_products WHERE cm_product_id = ?', [cm])[0] || {}).name || '').replace(/\s*\[.*?\]\s*/g, ' ').trim();
+  if (nm) return toSafari('https://www.cardmarket.com/es/Pokemon/Products/Search?searchString=' + encodeURIComponent(nm));
+  return `https://www.cardmarket.com/es/Pokemon/Products?idProduct=${cm}&${cmFilter(region)}${rev ? '&isReverseHolo=Y' : ''}`;
+}
 function cmLink(v, c) {
   const region = (c && c.region) || (c && c.card_id && (q('SELECT s.region FROM cards c JOIN sets s USING(set_id) WHERE card_id=?', [c.card_id])[0] || {}).region) || 'int';
   if (v && v.cm_product_id) return cmProductLink(v.cm_product_id, region, isRevHolo(v));
@@ -123,7 +132,17 @@ const realOf = (cm, rev) => cm ? (COL.real || {})[realKey(cm, rev)] || null : nu
 const realAge = r => r ? Math.max(0, Math.round((Date.now() - new Date(r.d + 'T12:00:00')) / 864e5)) : null;
 const realFresh = r => r && realAge(r) <= REAL_DAYS;
 const ageTxt = n => n === 0 ? 'hoy' : n === 1 ? 'ayer' : `hace ${n} días`;
-function realLabel(r) { return r ? `Oferta más baja ${r.l || 'ES'} (${r.c || 'NM'} o mejor) · ${ageTxt(realAge(r))}` : ''; }
+function realLabel(r) { return r ? `Oferta más baja ${r.l || 'ES'} (${r.c === 'ANY' ? 'cualquier estado' : (r.c || 'NM') + ' o mejor'}) · ${ageTxt(realAge(r))}` : ''; }
+// Escribir a mano la oferta más baja que ves en Cardmarket (vacío o 0 = quitar el precio real)
+function askRealPrice(cm, rev, lang, after) {
+  const k = realKey(cm, rev), cur = (COL.real || {})[k];
+  const v = prompt(`Oferta más baja en ${lang === 'JP' ? 'japonés' : 'español'} que ves en Cardmarket (€)${rev ? ' · reverse holo' : ''}.\nDéjalo vacío para quitar tu precio real.`, cur ? String(cur.p).replace('.', ',') : '');
+  if (v === null) return;
+  const p = parseFloat(String(v).replace(/\s|€/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+  COL.real ||= {};
+  if (!(p > 0)) { delete COL.real[k]; saveCol(); toast('Precio real quitado'); after(); return; }
+  COL.real[k] = { p: Math.round(p * 100) / 100, d: todayISO(), l: lang, c: 'NM' }; saveCol(); toast('Precio real guardado'); after();
+}
 function vPrice(v) {
   if (!v) return null;
   { const r = realOf(v.cm_product_id, isRevHolo(v)); if (realFresh(r)) return r.p; }
@@ -751,13 +770,14 @@ function viewOrdenCard(key, o) {
   const cmUrl = e.cm ? cmProductLink(e.cm, 'asia') : e.id ? cmLink(null, { card_id: e.id, name: e.n }) : 'https://www.cardmarket.com/es/Pokemon/Products/Singles?searchString=' + encodeURIComponent(e.n);
   const dex = (q(`SELECT dex_id FROM cards WHERE dex_id IS NOT NULL AND (name_en = ? OR name_en = ?) LIMIT 1`, [e.n, e.n.replace(/^(Dark|Light|Janine's) /, '')])[0] || {}).dex_id;
   const nav = cardNav(location.hash, null, null);
-  const paint = () => { const has = ordenOwned(name, e);
+  const paint = () => { const has = ordenOwned(name, e), p = ordenPrice(name, e, vmap);
     $view.innerHTML = `<div class="stack cardpage"><div class="grabber" aria-hidden="true"></div>
       <div class="row"><a href="#/illustrator/${encodeURIComponent(name)}" class="pill" id="cback" style="display:flex;align-items:center" aria-label="Volver">←</a><span class="muted">${esc(name)} · #${e.o} de ${E.length}</span></div>
       <div class="cardhero">${ordenImg(e, 'hero', name) || `<div class="hero" style="display:flex;align-items:center;justify-content:center;padding:12px;text-align:center">${esc(e.n)}<br>Sin foto</div>`}
         <h1>${esc(e.n)}</h1><span class="muted">${esc(e.s)} · ${esc(e.no)} · ${esc(e.d)}</span>
         ${p != null ? `<div class="big">${eur(p)}</div>${realFresh(realOf(e.cm)) ? `<span class="realtag">✓ ${esc(realLabel(realOf(e.cm)))}</span>` : `<span class="muted">${PRICE_LABEL()}</span>`}` : `<span class="muted">${e.cm ? 'Sin precio hoy en Cardmarket' : 'Sin precio: no está enlazada con Cardmarket'}</span>`}
         <a class="btn cmbtn" target="_blank" rel="noopener" href="${esc(cmUrl)}">Ver en Cardmarket ↗</a>
+        ${e.cm ? `<button class="pill" id="orealset" style="font-size:14px">✏️ ${realFresh(realOf(e.cm)) ? 'Cambiar' : 'Poner'} precio real</button>` : ''}
         ${e.note ? `<span class="muted" style="color:var(--down)">${esc(e.note)}</span>` : ''}
         <span class="muted">📒 En tu archivador: ${spotTxt(binderSpot('orden:' + name, E.indexOf(e)))}</span>
         <button class="btn ${has ? 'warn' : ''}" id="stog" style="width:100%;max-width:340px">${has ? 'Quitar de la colección' : '＋ La tengo'}</button>
@@ -770,6 +790,7 @@ function viewOrdenCard(key, o) {
     document.getElementById('ourl').onclick = async () => { const u = prompt('Pega el enlace de una imagen de la carta (https://…)'); if (u && /^https:\/\//.test(u.trim())) await setImg(u.trim()); };
     const od = document.getElementById('odel'); if (od) od.onclick = async () => { delete CUSTOM_IMG[ik]; await idbDel('img:' + ik); imgsDirty = true; saveCol(); paint(); };
     document.getElementById('stog').onclick = () => { ordenToggle(name, e, vmap); paint(); };
+    const ors = document.getElementById('orealset'); if (ors) ors.onclick = () => askRealPrice(e.cm, false, 'JP', paint);
   };
   paint();
   if (dex) pokeAfter(dex, e.n);
@@ -985,6 +1006,7 @@ function viewCard(cardId) {
           : `<span class="muted">${PRICE_LABEL()}${hol ? ' (reverse holo)' : ''}${PRICE_MODE === 'low' ? ' · cualquier idioma y estado' : ''}${r ? ` · tu precio real es antiguo (${ageTxt(realAge(r))})` : ''}</span>`; })()}
         ${sel && sel.ambiguous ? '<span class="down" style="font-size:13px">Ojo: este precio podría corresponder a otra versión de la carta.</span>' : ''}
         ${sel ? `<a class="btn cmbtn" target="_blank" rel="noopener" href="${cmLink(sel, c)}">Ver en Cardmarket ↗</a>` : ''}
+        ${sel && sel.cm_product_id ? `<button class="pill" id="realset" style="font-size:14px">✏️ ${realFresh(realOf(sel.cm_product_id, hol)) ? 'Cambiar' : 'Poner'} precio real</button>` : ''}
         ${vs.length > 1 ? `<label class="f" style="width:100%;max-width:340px;text-align:left">Versión<select id="vsel">${vs.map((v, i) => `<option value="${i}" ${v === sel ? 'selected' : ''}>${esc(vLabel(v))} — ${eur(vPrice(v))}</option>`).join('')}</select></label>` : `<span class="muted">${sel ? esc(vLabel(sel)) : 'Sin precio en Cardmarket'}</span>`}
         ${c.illustrator ? `<a href="#/illustrator/${encodeURIComponent(c.illustrator)}" style="font-size:14px">Ilustración: ${esc(c.illustrator)} →</a>` : ''}${albumPos ? `<span class="muted">${albumPos}</span>` : ''}
         <div class="row" style="flex-wrap:wrap;gap:6px;justify-content:center"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG[cardId] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="cimg" accept="image/*" hidden></label>
@@ -1023,6 +1045,7 @@ function viewCard(cardId) {
     $view.querySelectorAll('[data-hv]').forEach(b => b.onclick = () => { COL.hide ||= {}; const k = cardId + '|' + vkey(uv[+b.dataset.hv]); if (COL.hide[k]) delete COL.hide[k]; else COL.hide[k] = 1; saveCol(); viewCard(cardId); });
     const hc = document.getElementById('hidecard'); if (hc) hc.onclick = () => { COL.hide ||= {}; if (COL.hide[cardId]) delete COL.hide[cardId]; else COL.hide[cardId] = 1; saveCol(); toast(COL.hide[cardId] ? 'Oculta del set' : 'Visible de nuevo'); viewCard(cardId); };
     const ci = document.getElementById('cimg'); if (ci) ci.onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const u = await resizeImage(f); CUSTOM_IMG[cardId] = u; await idbPut('img:' + cardId, u); imgsDirty = true; saveCol(); toast('Imagen guardada'); draw(); } catch (e) { alert(e.message); } };
+    const rs = document.getElementById('realset'); if (rs) rs.onclick = () => askRealPrice(sel.cm_product_id, hol, c.region === 'asia' ? 'JP' : 'ES', draw);
     const cu = document.getElementById('curl'); if (cu) cu.onclick = async () => { const u = prompt('Pega el enlace de una imagen de la carta (https://…)'); if (!u || !/^https:\/\//.test(u.trim())) return; CUSTOM_IMG[cardId] = u.trim(); await idbPut('img:' + cardId, u.trim()); imgsDirty = true; saveCol(); draw(); };
     const cd = document.getElementById('cdel'); if (cd) cd.onclick = async () => { delete CUSTOM_IMG[cardId]; await idbDel('img:' + cardId); imgsDirty = true; saveCol(); draw(); };
     const vsel = document.getElementById('vsel'); if (vsel) vsel.onchange = () => { sel = vs[+vsel.value]; if (COL.cards[cardId]) { COL.cards[cardId].cm = sel.cm_product_id; COL.cards[cardId].variant = sel.variant; saveCol(); } draw(); };
@@ -1563,6 +1586,7 @@ function viewRecvPrice(qs) {
   const back = '<a href="#/" class="btn" style="align-self:flex-start">Ir a 9Bolsillos</a>';
   if (!cm || !(price > 0)) { $view.innerHTML = `<div class="stack"><h1>No he podido leer el precio</h1><p class="muted">Abre la carta en Cardmarket (desde el botón ↗ de 9B), espera a que se vean las ofertas y vuelve a usar el Atajo.</p>${back}</div>`; return; }
   const today = todayISO(), entry = { p: Math.round(price * 100) / 100, d: today, l, c };
+  const pu = String(P.get('u') || ''); if (/^https:\/\/www\.cardmarket\.com\/[a-z]{2}\/Pokemon\/Products\/Singles\/[^?#\s]+$/.test(pu)) entry.u = pu;
   // No se toca la colección guardada aquí todavía: Safari puede tener una copia antigua. Se apunta como pendiente y
   // se aplica sobre la versión de tu cuenta (applyPendingReal), así no se pisa nada de lo que hiciste en la app.
   const pend = JSON.parse(localStorage.getItem('9b.realPending') || '{}'); pend[realKey(cm, rev)] = entry; localStorage.setItem('9b.realPending', JSON.stringify(pend));
@@ -1592,7 +1616,8 @@ function viewRecvPrice(qs) {
 async function applyPendingReal() {
   const pend = JSON.parse(localStorage.getItem('9b.realPending') || '{}'), keys = Object.keys(pend);
   if (!keys.length) return 'none';
-  const put = base => { base.real = base.real || {}; keys.forEach(k => { if (!base.real[k] || (pend[k].d || '') >= (base.real[k].d || '')) base.real[k] = pend[k]; }); };
+  const put = base => { base.real = base.real || {}; base.cmurl = base.cmurl || {};
+    keys.forEach(k => { const { u, ...e } = pend[k]; if (u) base.cmurl[k.split('|')[0]] = u; if (!base.real[k] || (e.d || '') >= (base.real[k].d || '')) base.real[k] = e; }); };
   if (!SB || !SB_USER) { put(COL); saveCol(); localStorage.removeItem('9b.realPending'); return 'local'; }
   try {
     const { data, error } = await SB.from('collections').select('data').eq('user_id', SB_USER.id).maybeSingle();
@@ -1807,7 +1832,7 @@ async function syncNow(quiet) {
 }
 function mergeCols(a, b) {
   const out = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, hide: {}, setHide: {} }, a);
-  for (const k of ['cards', 'sealed', 'alerts', 'illustrators', 'sell', 'hide', 'extra', 'binders', 'real']) out[k] = Object.assign({}, a[k] || {}, b[k] || {});
+  for (const k of ['cards', 'sealed', 'alerts', 'illustrators', 'sell', 'hide', 'extra', 'binders', 'real', 'cmurl']) out[k] = Object.assign({}, a[k] || {}, b[k] || {});
   out.real = {}; for (const src of [a.real || {}, b.real || {}]) for (const [k, v] of Object.entries(src)) if (!out.real[k] || (v.d || '') >= (out.real[k].d || '')) out.real[k] = v;
   out.master = Object.assign({}, a.master || {}); for (const [id, m] of Object.entries(b.master || {})) out.master[id] = Object.assign({}, out.master[id] || {}, m);
   out.setHide = Object.assign({}, a.setHide || {}); for (const [id, l] of Object.entries(b.setHide || {})) out.setHide[id] = [...new Set([...(out.setHide[id] || []), ...l])];
@@ -1918,7 +1943,7 @@ function route() {
   if (a === 'card' || a === 'ocard') { if (LIST_CTX && LIST_CTX.includes(location.hash)) NAV_CTX = LIST_CTX; else if (!(NAV_CTX && NAV_CTX.includes(location.hash))) NAV_CTX = null; } else LIST_CTX = null;
   try {
     if (!a) viewHome();
-    else if (a.startsWith('precio')) viewRecvPrice(a.split('?')[1] || '');
+    else if (a.startsWith('precio')) viewRecvPrice(location.hash.split('?')[1] || '');   // sin decodificar: la dirección de Cardmarket lleva barras
     else if (a === 'sets') viewSets();
     else if (a === 'set') viewSet(b);
     else if (a === 'illustrators') viewIllustrators();
