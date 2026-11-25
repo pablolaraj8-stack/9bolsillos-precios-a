@@ -671,7 +671,7 @@ function cmSealedType(x) {
 let EXP_PHOTOS = null;
 function photosFor(expId) {
   if (!EXP_PHOTOS) { EXP_PHOTOS = {}; const S = window.SELLADO || {}, ids = Object.keys(S);
-    if (ids.length) q(`SELECT set_id, cm_expansion_id FROM sets WHERE set_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => { if (r.cm_expansion_id) EXP_PHOTOS[r.cm_expansion_id] = S[r.set_id]; }); }
+    if (ids.length) q(`SELECT set_id, cm_expansion_id FROM sets WHERE set_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => { if (r.cm_expansion_id) EXP_PHOTOS[r.cm_expansion_id] = (EXP_PHOTOS[r.cm_expansion_id] || []).concat(S[r.set_id] || []); }); }   // varios sets pueden compartir expansión (p. ej. 30.º Aniversario y su Colección Clásica): se juntan sus fotos
   return EXP_PHOTOS[expId] || [];
 }
 function photoScore(x, f) {

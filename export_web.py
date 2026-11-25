@@ -148,11 +148,11 @@ if os.path.exists(a.sellado):
             except Exception:
                 pass
         return u, None
-    todas = sorted({f["u"] for k, v in S.items() if k != "_v" for f in v.get("fotos", [])})
+    todas = sorted({f["u"] for k, v in S.items() if not k.startswith("_") for f in v.get("fotos", [])})
     with concurrent.futures.ThreadPoolExecutor(4) as ex:
         local = dict(ex.map(_baja, todas))
     for k, v in S.items():
-        if k == "_v": continue
+        if k.startswith("_"): continue
         fs = [{"t": f["t"], "n": f["n"], "u": local.get(f["u"])} for f in v.get("fotos", []) if local.get(f["u"])]
         if fs: _sellado[k] = fs
     print(f"Fotos de sellado: {sum(1 for x in local.values() if x)}/{len(todas)} publicadas · {len(_sellado)} sets")

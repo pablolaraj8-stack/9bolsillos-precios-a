@@ -6,11 +6,12 @@ Usa la API pública de WikiDex despacio (1 petición por segundo) y guarda lo ya
 miran los sets nuevos y, una vez al mes, los que no tenían fotos.
 Salida: {set_id: [{"t": tipo, "n": nombre en español, "u": url de la miniatura}], "_v": versión}
 """
-import argparse, datetime, json, re, sqlite3, time, urllib.parse, urllib.request
+import argparse, datetime, json, re, sqlite3, time, unicodedata, urllib.parse, urllib.request
 
 API = "https://www.wikidex.net/api.php"
 UA = {"User-Agent": "9Bolsillos/1.0 (app personal de coleccion Pokemon; github.com/pablolaraj8-stack/9bolsillos-precios-a)"}
 VERSION = 2
+BUSQUEDA = 3   # sube este número para volver a buscar ya mismo los sets que se quedaron sin fotos
 # tipo de producto según el nombre del archivo en WikiDex (en español)
 TIPOS = [
     ("etbpc", r"Caja de Entrenador [ÉE]lite.*Pok[ée]mon Center|Pok[ée]mon Center.*Caja de Entrenador"),
@@ -39,15 +40,31 @@ def tipo(nombre):
     return None
 
 
+def norm(t):
+    """Compara nombres sin tildes, mayúsculas ni signos: «30.º», «30º» y «30°» cuentan igual."""
+    t = unicodedata.normalize("NFKD", re.sub(r"\.?\s*[º°ª]", "", t))
+    t = "".join(c for c in t if not unicodedata.combining(c)).lower()
+    return re.sub(r"[^a-z0-9]+", " ", t).strip()
+
+
 def buscar(nombre_set, pause=1.0):
-    # 1) archivos con el nombre del set en el título
-    r = api({"action": "query", "list": "search", "srnamespace": 6, "srsearch": f'intitle:"{nombre_set}"', "srlimit": 50})
+    files = []
+    # 1) archivos cuyo nombre EMPIEZA por el nombre del set (p. ej. «Celebración 30.º Aniversario Caja de Entrenador Élite.png»).
+    #    Es una lista exacta, no depende del buscador, así que no falla con signos como «30.º».
+    r = api({"action": "query", "list": "allimages", "aiprefix": nombre_set, "ailimit": 200})
     time.sleep(pause)
-    files = [x["title"] for x in r.get("query", {}).get("search", [])]
-    # 2) imágenes que salen en la página de la expansión (ahí suelen estar la ETB, las cajas y los blísteres)
+    files += ["Archivo:" + x["name"].replace("_", " ") for x in r.get("query", {}).get("allimages", [])]
+    # 2) archivos con el nombre del set en cualquier parte del título («Caja de Entrenador Élite Destinos de Paldea.png»)
+    for q in (f'intitle:"{nombre_set}"', " ".join("intitle:" + w for w in norm(nombre_set).split() if len(w) > 1)):
+        r = api({"action": "query", "list": "search", "srnamespace": 6, "srsearch": q, "srlimit": 50})
+        time.sleep(pause)
+        files += [x["title"] for x in r.get("query", {}).get("search", [])]
+    # 3) imágenes que salen en la página de la expansión (ahí suelen estar la ETB, las cajas y los blísteres)
     r = api({"action": "query", "list": "search", "srsearch": f'intitle:"{nombre_set}" TCG', "srlimit": 10})
     time.sleep(pause)
-    pag = next((x["title"] for x in r.get("query", {}).get("search", []) if "(TCG):" in x["title"] and x["title"].lower().endswith(nombre_set.lower())), None)
+    ns = norm(nombre_set)
+    pag = next((x["title"] for x in r.get("query", {}).get("search", [])
+                if norm(x["title"]) == ns + " tcg" or ("(TCG):" in x["title"] and norm(x["title"]).endswith(ns))), None)
     if pag:
         im = api({"action": "query", "titles": pag, "prop": "images", "imlimit": 200, "redirects": 1})
         time.sleep(pause)
@@ -57,7 +74,7 @@ def buscar(nombre_set, pause=1.0):
     for f in files:
         n = re.sub(r"^Archivo:", "", f)
         n = re.sub(r"\.(png|jpe?g|webp|gif)$", "", n, flags=re.I)
-        if nombre_set.lower() not in n.lower() or FUERA.search(f):
+        if ns not in norm(n) or FUERA.search(f):
             continue
         t = tipo(n)
         if t:
@@ -70,13 +87,13 @@ def buscar(nombre_set, pause=1.0):
         d = api({"action": "query", "titles": "|".join(f for f, _, _ in lote), "prop": "imageinfo", "iiprop": "url", "iiurlwidth": 500})
         time.sleep(pause)
         urls = {}
-        norm = {x["from"]: x["to"] for x in d.get("query", {}).get("normalized", [])}
+        renom = {x["from"]: x["to"] for x in d.get("query", {}).get("normalized", [])}
         for p in d.get("query", {}).get("pages", []):
             ii = (p.get("imageinfo") or [{}])[0]
             if ii.get("thumburl") or ii.get("url"):
                 urls[p["title"]] = ii.get("thumburl") or ii["url"]
         for f, n, t in lote:
-            u = urls.get(norm.get(f, f))
+            u = urls.get(renom.get(f, f))
             if u:
                 out.append({"t": t, "n": n, "u": u})
     orden = [t for t, _ in TIPOS]
@@ -97,13 +114,15 @@ def main():
         prev = {}
     if prev.get("_v") != VERSION:
         prev = {}
+    if prev.get("_b") != BUSQUEDA:   # búsqueda mejorada: se conservan los sets con fotos y se reintentan los vacíos
+        prev = {k: v for k, v in prev.items() if k == "_v" or (isinstance(v, dict) and v.get("fotos"))}
     hoy = datetime.date.today().isoformat()
     mes = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
     db = sqlite3.connect(a.db)
     sets = db.execute("""SELECT s.set_id, s.name_es FROM sets s WHERE s.lang = 'es' AND s.name_es IS NOT NULL AND s.cm_expansion_id IS NOT NULL
         AND EXISTS (SELECT 1 FROM cm_products p WHERE p.kind = 'sealed' AND p.cm_expansion_id = s.cm_expansion_id)
         ORDER BY s.release_date DESC""").fetchall()
-    out, hechos = {"_v": VERSION}, 0
+    out, hechos = {"_v": VERSION, "_b": BUSQUEDA}, 0
     for sid, nombre in sets:
         p = prev.get(sid)
         if p and (p.get("fotos") or p.get("d", "") > mes):
@@ -123,7 +142,7 @@ def main():
         hechos += 1
         out[sid] = {"d": hoy, "fotos": fotos}
     json.dump(out, open(a.out, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
-    con = sum(1 for k, v in out.items() if k != "_v" and v.get("fotos"))
+    con = sum(1 for k, v in out.items() if not k.startswith("_") and v.get("fotos"))
     print(f"Sellado: {len(sets)} sets en español con producto · {con} con fotos de WikiDex · {hechos} consultados hoy")
 
 
