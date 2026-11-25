@@ -579,9 +579,9 @@ function viewSealedItem(id) {
   const gain = e && e.buy != null && p != null ? (p - e.buy) * (e.qty || 1) : null;
   const cm = 'https://www.cardmarket.com/es/Pokemon/Products/Search?searchString=' + encodeURIComponent(x.name);
   $view.innerHTML = `<div class="stack">
-    <div class="row"><a href="${x.set_id ? '#/set/' + encodeURIComponent(x.set_id) : '#/sealed'}" class="pill" style="display:flex;align-items:center">←</a><span class="muted">${esc(x.set_name || '')} · ${esc(SEALED_LABEL[x.category] || x.category)}</span></div>
+    <div class="row"><a href="${COL.sealed[id] ? '#/sealed' : x.set_id ? '#/set/' + encodeURIComponent(x.set_id) : '#/sealed'}" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><span class="muted">${esc(x.set_name || '')} · ${esc(SEALED_LABEL[x.category] || x.category)}</span></div>
     <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
-      <div class="col" style="gap:8px;align-items:flex-start"><div style="width:180px;position:relative">${sealedArt(x, x.ib, 'sealart big')}</div>
+      <div class="col" style="gap:8px;align-items:flex-start"><div class="sdetail">${CUSTOM_IMG['sealed:' + id] ? `<img src="${CUSTOM_IMG['sealed:' + id]}" alt="" style="width:100%;height:100%;object-fit:cover">` : sealedArt(x, x.ib, 'sealart big')}</div>
         <div class="row" style="flex-wrap:wrap;gap:6px;max-width:180px"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG['sealed:' + id] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="simg" accept="image/*" hidden></label>${CUSTOM_IMG['sealed:' + id] ? '<button class="pill" id="sdel" style="font-size:13px">Quitar</button>' : ''}</div></div>
       <div class="col" style="gap:8px;flex:1;min-width:200px"><h1>${esc(x.name)}</h1>
         <div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}</span>
@@ -1086,7 +1086,8 @@ function viewWishlist() {
 const TYPES = { single: 'Carta suelta', sobres: 'Sobres', etb: 'ETB', caja: 'Caja / display', lata: 'Lata / colección', otro: 'Otro' };
 function sealedPrices(ids) {
   const out = {}; if (!ids.length) return out;
-  q(`SELECT p.cm_product_id, p.name, p.category, pr.trend, pr.avg30, pr.avg7, pr.low, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name
+  q(`SELECT p.cm_product_id, p.name, p.category, pr.trend, pr.avg30, pr.avg7, pr.low, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name, s.set_id,
+     (SELECT image_base FROM cards c WHERE c.set_id = s.set_id LIMIT 1) ib
      FROM cm_products p LEFT JOIN prices pr USING(cm_product_id) LEFT JOIN sets s ON s.set_id = (SELECT MIN(set_id) FROM sets x WHERE x.cm_expansion_id = p.cm_expansion_id)
      WHERE p.cm_product_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => out[r.cm_product_id] = r);
   return out;
@@ -1218,32 +1219,40 @@ function viewExpenses() {
 function viewSealed() {
   const ids = Object.keys(COL.sealed).map(Number), info = sealedPrices(ids);
   const hist = {}; historyFor(ids).forEach(h => { if (h.trend_c != null) (hist[h.cm_product_id] ||= []).push([h.day, h.trend_c / 100]); });
-  let cost = 0, val = 0;
+  let cost = 0, val = 0, units = 0;
   const rows = ids.map(id => { const e = COL.sealed[id], r = info[id] || {}, now = rPrice(r), qty = e.qty || 1;
-    if (now != null) val += now * qty; if (e.buy != null && now != null) cost += e.buy * qty;
-    const mom = r.avg30 && now != null ? (now - r.avg30) / r.avg30 * 100 : null;
-    return { id, e, r, now, qty, mom }; }).sort((a, b) => (b.now || 0) * b.qty - (a.now || 0) * a.qty);
-  const withBuy = rows.filter(x => x.e.buy != null && x.now != null);
-  const gain = withBuy.reduce((t, x) => t + (x.now - x.e.buy) * x.qty, 0);
-  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center">←</a><h1>Sellado</h1></div>
-    <div class="card col" style="gap:6px"><span class="muted">Valor de tu sellado</span><div class="big">${eur(val)}</div>
-      ${withBuy.length ? `<span class="${gain >= 0 ? 'up' : 'down'}" style="font-weight:600">${gain >= 0 ? '+' : '−'}${eur(Math.abs(gain))} sobre lo que pagaste (${pct(cost ? gain / cost * 100 : 0)})</span>` : '<span class="muted">Pon el precio de compra de cada producto para ver si se revaloriza.</span>'}</div>
-    <label class="f">Añadir producto sellado<input type="search" id="sq2" placeholder="Busca: Pitch Black Elite Trainer Box, Booster Box…"></label><div class="list" id="sres"></div>
-    <div class="list">${rows.map(x => { const g = x.e.buy != null && x.now != null ? (x.now - x.e.buy) * x.qty : null;
-      const verdict = x.mom == null ? '' : x.mom > 5 ? '<span class="up">Subiendo (tendencia por encima de su media de 30 días)</span>' : x.mom < -5 ? '<span class="down">Bajando respecto a su media de 30 días</span>' : 'Estable';
-      return `<div class="item" style="flex-wrap:wrap"><div class="col" style="flex:1;min-width:200px"><a href="#/sealeditem/${x.id}" style="color:var(--tx)"><b>${esc(x.r.name || ('Producto ' + x.id))}</b></a><span class="muted">${esc((x.r.category || '').replace('Pokémon ', ''))}${x.r.set_name ? ' · ' + esc(x.r.set_name) : ''}</span>
-        <span style="font-size:13px">Hoy ${eur(x.now)}/ud${x.e.buy != null ? ` · pagaste ${eur(x.e.buy)}/ud` : ''}${g != null ? ` · <span class="${g >= 0 ? 'up' : 'down'}">${g >= 0 ? '+' : '−'}${eur(Math.abs(g))} (${pct((x.now - x.e.buy) / x.e.buy * 100)})</span>` : ''}</span>
-        <span class="muted" style="font-size:12px">${verdict}${(hist[x.id] || []).length > 1 ? ' · ' + (hist[x.id].length) + ' días de historial' : ''}</span></div>
-        <div class="row"><label class="f">Uds<input type="number" min="0" value="${x.qty}" data-sq="${x.id}" style="width:70px"></label><label class="f">€/ud pagado<input type="number" step="0.01" min="0" value="${x.e.buy ?? ''}" data-sb="${x.id}" style="width:100px"></label></div></div>`; }).join('') || '<p class="muted">No tienes producto sellado apuntado.</p>'}</div>
-    <p class="muted">"Subiendo/Bajando" compara el precio de tendencia con su media de 30 días en Cardmarket. Es una pista, no una predicción.</p></div>`;
-  $view.querySelectorAll('[data-sq]').forEach(i => i.onchange = () => { const k = parseInt(i.value, 10); if (!k) delete COL.sealed[i.dataset.sq]; else COL.sealed[i.dataset.sq].qty = k; saveCol(); viewSealed(); });
-  $view.querySelectorAll('[data-sb]').forEach(i => i.onchange = () => { COL.sealed[i.dataset.sb].buy = parseNum(i.value); saveCol(); viewSealed(); });
+    units += qty; if (now != null) val += now * qty; if (e.buy != null && now != null) cost += e.buy * qty;
+    const g = e.buy != null && now != null ? (now - e.buy) * qty : null;
+    return { id, e, r, now, qty, g }; }).sort((a, b) => (b.now || 0) * b.qty - (a.now || 0) * a.qty);
+  const withBuy = rows.filter(x => x.g != null), gain = withBuy.reduce((t, x) => t + x.g, 0);
+  // valor del sellado día a día (solo días con precio de todos los productos que tenían precio)
+  const days = {}; Object.entries(hist).forEach(([id, h]) => h.forEach(([d, v]) => days[d] = (days[d] || 0) + v * ((COL.sealed[id] || {}).qty || 1)));
+  const series = Object.entries(days).sort((a, b) => a[0] < b[0] ? -1 : 1).map(([d, v]) => [d, v]);
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Sellado</h1>
+      <button class="pill" id="sadd2" style="display:flex;align-items:center;gap:6px">＋ Añadir</button></div>
+    <div class="sealhero"><span class="sk">Valor de tu sellado</span><span class="sv">${eur(val)}</span>
+      <span class="sk">${units} producto${units === 1 ? '' : 's'}${withBuy.length ? ` · pagaste ${eur(cost)} · <b style="color:${gain >= 0 ? '#3DDC97' : '#F2A65A'}">${gain >= 0 ? '+' : '−'}${eur(Math.abs(gain))} (${pct(cost ? gain / cost * 100 : 0)})</b>` : ''}</span>
+      ${series.length > 1 ? `<div style="margin-top:8px">${chartSvg(series, 700, 90)}</div>` : ''}</div>
+    <div id="sfind" class="col" style="gap:8px;display:none"><input type="search" id="sq2" placeholder="Busca: Elite Trainer Box Fulgor Negro, caja de sobres…"><div class="list" id="sres"></div></div>
+    ${rows.length ? `<div class="sgal">${rows.map(x => `<a class="scard" href="#/sealeditem/${x.id}">
+        <div class="sphoto">${CUSTOM_IMG['sealed:' + x.id] ? `<img src="${CUSTOM_IMG['sealed:' + x.id]}" alt="">` : sealedArt(x.r, x.r.ib)}
+          ${x.qty > 1 ? `<span class="sqty">×${x.qty}</span>` : ''}
+          ${CUSTOM_IMG['sealed:' + x.id] ? '' : `<label class="sphotobtn" aria-label="Hacer foto" onclick="event.stopPropagation()">📷<input type="file" accept="image/*" capture="environment" data-sphoto="${x.id}" hidden></label>`}</div>
+        <div class="sinfo"><span class="stype">${esc(SEALED_LABEL[x.r.category] || (x.r.category || '').replace('Pokémon ', ''))}${x.r.set_name ? ' · ' + esc(x.r.set_name) : ''}</span>
+          <b class="sname">${esc(x.r.name || 'Producto ' + x.id)}</b>
+          <div class="between"><b>${eur(x.now)}</b>${x.g != null ? `<span class="schip ${x.g >= 0 ? 'up' : 'down'}">${pct((x.now - x.e.buy) / x.e.buy * 100)}</span>` : ''}</div></div></a>`).join('')}</div>`
+      : '<div class="card col" style="gap:8px;align-items:flex-start"><b>Aún no tienes producto sellado</b><span class="muted">Pulsa «＋ Añadir» y busca tus ETB, cajas o latas. Luego hazles una foto con 📷.</span></div>'}
+    <p class="muted">La foto es tuya: hazla con buena luz y de frente. Toca un producto para cambiar la foto, las unidades o lo que pagaste.</p></div>`;
+  const find = document.getElementById('sfind');
+  document.getElementById('sadd2').onclick = () => { find.style.display = find.style.display === 'none' ? 'flex' : 'none'; if (find.style.display !== 'none') document.getElementById('sq2').focus(); };
+  $view.querySelectorAll('[data-sphoto]').forEach(inp => { inp.onclick = ev => ev.stopPropagation(); inp.onchange = async ev => { const f = ev.target.files[0]; if (!f) return; const id = inp.dataset.sphoto;
+    const u = await resizeImage(f); CUSTOM_IMG['sealed:' + id] = u; await idbPut('img:sealed:' + id, u); imgsDirty = true; saveCol(); toast('Foto guardada'); viewSealed(); }; });
   const sq = document.getElementById('sq2'); let t = null;
   sq.oninput = () => { clearTimeout(t); t = setTimeout(() => {
     const v = sq.value.trim(), box = document.getElementById('sres'); if (v.length < 2) { box.innerHTML = ''; return; }
     const rs = q(`SELECT p.cm_product_id, p.name, p.category, pr.trend FROM cm_products p LEFT JOIN prices pr USING(cm_product_id) WHERE p.kind='sealed' AND p.name LIKE ? ORDER BY p.cm_product_id DESC LIMIT 15`, ['%' + v + '%']);
-    box.innerHTML = rs.map(r => `<div class="item"><div class="col" style="flex:1"><b>${esc(r.name)}</b><span class="muted">${esc(r.category.replace('Pokémon ', ''))}</span></div><b>${eur(r.trend)}</b><button class="pill" data-sadd="${r.cm_product_id}">＋</button></div>`).join('') || '<p class="muted">Sin resultados (los nombres de sellado están en inglés).</p>';
-    box.querySelectorAll('[data-sadd]').forEach(b => b.onclick = () => { const id = b.dataset.sadd; if (COL.sealed[id]) COL.sealed[id].qty = (COL.sealed[id].qty || 1) + 1; else COL.sealed[id] = { qty: 1 }; saveCol(); viewSealed(); });
+    box.innerHTML = rs.map(r => `<div class="item"><div class="col" style="flex:1"><b>${esc(r.name)}</b><span class="muted">${esc(SEALED_LABEL[r.category] || r.category.replace('Pokémon ', ''))}</span></div><b>${eur(r.trend)}</b><button class="pill" data-sadd="${r.cm_product_id}" aria-label="Añadir">＋</button></div>`).join('') || '<p class="muted">Nada con ese nombre.</p>';
+    box.querySelectorAll('[data-sadd]').forEach(b => b.onclick = () => { const id = b.dataset.sadd; if (COL.sealed[id]) COL.sealed[id].qty = (COL.sealed[id].qty || 1) + 1; else COL.sealed[id] = { qty: 1 }; saveCol(); toast('Añadido'); viewSealed(); });
   }, 200); };
 }
 
