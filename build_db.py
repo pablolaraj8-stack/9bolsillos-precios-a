@@ -73,6 +73,7 @@ def load_tcgdex(root):
                                  release=first(r"releaseDate:\s*['\"]([^'\"]+)", txt),
                                  count=int(count) if count else None,
                                  cm_exp=int(cm_exp) if cm_exp else None,
+                                 abbr=first(r"abbreviations:\s*\{[^}]*?official:\s*['\"]([^'\"]+)", txt),
                                  name_local=names.get(lang) or next(iter(names.values()), None)))
                 cdir = os.path.join(sdir, f[:-3])
                 if not os.path.isdir(cdir):
@@ -133,7 +134,7 @@ SCHEMA = """
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE sets(
   set_id TEXT PRIMARY KEY, region TEXT, serie TEXT, name_es TEXT, name_en TEXT, name_ja TEXT,
-  release_date TEXT, card_count INTEGER, cm_expansion_id INTEGER, lang TEXT, name_local TEXT);
+  release_date TEXT, card_count INTEGER, cm_expansion_id INTEGER, lang TEXT, name_local TEXT, abbr TEXT);
 CREATE TABLE cards(
   card_id TEXT PRIMARY KEY, set_id TEXT REFERENCES sets(set_id), local_id TEXT,
   name_es TEXT, name_en TEXT, name_ja TEXT, rarity TEXT, dex_id INTEGER, image_base TEXT,
@@ -217,9 +218,9 @@ def main():
     db.executescript(SCHEMA)
 
     sets, cards = load_tcgdex(a.tcgdex)
-    db.executemany("INSERT OR IGNORE INTO sets VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+    db.executemany("INSERT OR IGNORE INTO sets VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                    [(s["set_id"], s["region"], s["serie"], s["name_es"], s["name_en"], s["name_ja"],
-                     s["release"], s["count"], s["cm_exp"], s["lang"], s.get("name_local")) for s in sets])
+                     s["release"], s["count"], s["cm_exp"], s["lang"], s.get("name_local"), s.get("abbr")) for s in sets])
     db.executemany("INSERT OR IGNORE INTO cards VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                    [(c["card_id"], c["set_id"], c["local"], c["name_es"], c["name_en"], c["name_ja"],
                      c["rarity"], c["dex"], c["image"], c["name_local"], c["illustrator"], c.get("kind"), c.get("ptype")) for c in cards])

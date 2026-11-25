@@ -45,10 +45,27 @@ const toSafari = u => (/iPad|iPhone|iPod/.test(navigator.userAgent) ? u.replace(
 function cmProductLink(cm, region, rev) {
   const saved = (COL.cmurl || {})[cm];
   if (saved) return toSafari(`${saved}?${cmFilter(region)}${rev ? '&isReverseHolo=Y' : ''}`);
-  // Aún sin dirección guardada: búsqueda por nombre en Safari (la primera vez entras tú en la carta y usas el Atajo)
+  // Dirección directa de la carta, montada como la forma Cardmarket: /Singles/<Set>/<Nombre>-V<n>-<CÓDIGO><número>
+  const slug = cmSlug(cm);
+  if (slug) return toSafari(`https://www.cardmarket.com/es/Pokemon/Products/Singles/${slug}?${cmFilter(region)}${rev ? '&isReverseHolo=Y' : ''}`);
   const nm = ((q('SELECT name FROM cm_products WHERE cm_product_id = ?', [cm])[0] || {}).name || '').replace(/\s*\[.*?\]\s*/g, ' ').trim();
   if (nm) return toSafari('https://www.cardmarket.com/es/Pokemon/Products/Search?searchString=' + encodeURIComponent(nm));
   return `https://www.cardmarket.com/es/Pokemon/Products?idProduct=${cm}&${cmFilter(region)}${rev ? '&isReverseHolo=Y' : ''}`;
+}
+function cmSlugify(t) {
+  return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/['’`.]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+function cmSlug(cm) {
+  try {
+    const r = q(`SELECT p.name, p.cm_expansion_id AS exp, c.local_id, s.name_en, s.abbr FROM cm_products p
+      JOIN card_variants v ON v.cm_product_id = p.cm_product_id JOIN cards c ON c.card_id = v.card_id JOIN sets s ON s.set_id = c.set_id
+      WHERE p.cm_product_id = ? AND s.cm_expansion_id = p.cm_expansion_id LIMIT 1`, [cm])[0];
+    if (!r || !r.abbr || !r.name_en || !r.local_id) return null;
+    const vers = q('SELECT cm_product_id FROM cm_products WHERE cm_expansion_id = ? AND name = ? ORDER BY cm_product_id', [r.exp, r.name]).map(x => x.cm_product_id);
+    const base = cmSlugify(r.name.replace(/\s*\[.*$/, ''));
+    const v = vers.length > 1 ? `-V${vers.indexOf(cm) + 1}` : '';
+    return `${cmSlugify(r.name_en)}/${base}${v}-${r.abbr}${r.local_id}`;
+  } catch (e) { return null; }  // base de datos antigua sin código de set
 }
 function cmLink(v, c) {
   const region = (c && c.region) || (c && c.card_id && (q('SELECT s.region FROM cards c JOIN sets s USING(set_id) WHERE card_id=?', [c.card_id])[0] || {}).region) || 'int';
