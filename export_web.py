@@ -14,6 +14,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--db", required=True)
 ap.add_argument("--out", required=True)
 ap.add_argument("--days", type=int, default=21)
+ap.add_argument("--sellado", default="sellado.json", help="fotos del producto sellado (sellado.py)")
 a = ap.parse_args()
 os.makedirs(a.out, exist_ok=True)
 db = sqlite3.connect(a.db)
@@ -128,7 +129,35 @@ _orden = {}
 if os.path.exists(orden_path):
     base = "https://images.collectholo.com/product/cards-jp/"
     _orden = self_host({m: base + m for m in set(re.findall(r'"img":"([^"]+)"', open(orden_path, encoding="utf-8").read()))}, "orden")
+# Fotos del producto sellado (WikiDex): primero la copia que ya publicamos ayer, si no, WikiDex
+_sellado = {}
+if os.path.exists(a.sellado):
+    import urllib.request, concurrent.futures, hashlib as _h
+    S = json.load(open(a.sellado, encoding="utf-8"))
+    PAGES = "https://pablolaraj8-stack.github.io/9bolsillos-precios-a/"
+    def _baja(u):
+        name = _h.md5(u.encode()).hexdigest()[:16] + os.path.splitext(u.split("?")[0])[1].lower()
+        rel = "img/sellado/" + name
+        for src in (PAGES + rel, u):
+            try:
+                data = urllib.request.urlopen(urllib.request.Request(src, headers={"User-Agent": "9Bolsillos/1.0 (uso personal)"}), timeout=30).read()
+                if len(data) > 500:
+                    os.makedirs(os.path.join(a.out, "img/sellado"), exist_ok=True)
+                    open(os.path.join(a.out, rel), "wb").write(data)
+                    return u, rel
+            except Exception:
+                pass
+        return u, None
+    todas = sorted({f["u"] for k, v in S.items() if k != "_v" for f in v.get("fotos", [])})
+    with concurrent.futures.ThreadPoolExecutor(4) as ex:
+        local = dict(ex.map(_baja, todas))
+    for k, v in S.items():
+        if k == "_v": continue
+        fs = [{"t": f["t"], "n": f["n"], "u": local.get(f["u"])} for f in v.get("fotos", []) if local.get(f["u"])]
+        if fs: _sellado[k] = fs
+    print(f"Fotos de sellado: {sum(1 for x in local.values() if x)}/{len(todas)} publicadas · {len(_sellado)} sets")
 with open(os.path.join(a.out, "logos.js"), "w", encoding="utf-8") as f:
+    f.write("window.SELLADO = " + json.dumps(_sellado, ensure_ascii=False, separators=(",", ":")) + ";\n")
     f.write("window.SET_LOGOS = " + json.dumps(_logos, separators=(",", ":")) + ";\n")
     f.write("window.IMG_FB = " + json.dumps(_imgs, separators=(",", ":")) + ";\n")
     f.write("window.ORDEN_IMGS = " + json.dumps(_orden, separators=(",", ":")) + ";\n")

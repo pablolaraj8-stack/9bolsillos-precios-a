@@ -6,7 +6,7 @@ on:
   workflow_dispatch:        # botón "Run workflow" para lanzarlo a mano
   push:
     branches: [main]
-    paths: ["app/**", "build_db.py", "update_prices.py", "export_web.py", "wikidex.py", ".github/workflows/**"]
+    paths: ["app/**", "build_db.py", "update_prices.py", "export_web.py", "wikidex.py", "sellado.py", ".github/workflows/**"]
 
 permissions:
   contents: write
@@ -62,6 +62,12 @@ jobs:
           curl -fsSL "https://pablolaraj8-stack.github.io/9bolsillos-precios-a/entrenadores.json" -o entrenadores_prev.json || echo '{}' > entrenadores_prev.json
           python3 wikidex.py --db 9bolsillos.db --prev entrenadores_prev.json --out entrenadores.json
 
+      - name: Fotos del producto sellado de cada set (WikiDex)
+        continue-on-error: true
+        run: |
+          curl -fsSL "https://pablolaraj8-stack.github.io/9bolsillos-precios-a/sellado.json" -o sellado_prev.json || echo '{}' > sellado_prev.json
+          python3 sellado.py --db 9bolsillos.db --prev sellado_prev.json --out sellado.json || cp sellado_prev.json sellado.json
+
       - name: Guardar la base de datos actualizada
         env:
           GH_TOKEN: ${{ github.token }}
@@ -75,6 +81,7 @@ jobs:
           sed -i -E "s/\?v=[0-9a-z]+/?v=${GITHUB_SHA::7}/g" _site/index.html
           python3 export_web.py --db 9bolsillos.db --out _site
           cp entrenadores.json _site/ 2>/dev/null || cp entrenadores_prev.json _site/entrenadores.json 2>/dev/null || true
+          cp sellado.json _site/ 2>/dev/null || true
           ls -la _site | head -40
           cat _site/version.json
 

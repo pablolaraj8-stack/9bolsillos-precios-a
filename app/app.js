@@ -550,6 +550,7 @@ function wireControls(rerender) {
   $view.querySelectorAll('[data-ms]').forEach(b => b.onclick = () => { MASTER = b.dataset.ms === 'true'; rerender(); });
 }
 
+let SET_TAB = 'cards';
 function viewSet(setId) {
   const s = q(`SELECT set_id, lang, COALESCE(name_es,name_en,name_ja,name_local) name, serie, release_date, card_count, cm_expansion_id FROM sets WHERE set_id=?`, [setId])[0];
   if (!s) { $view.innerHTML = '<p>Set no encontrado.</p>'; return; }
@@ -566,14 +567,18 @@ function viewSet(setId) {
   $view.innerHTML = `<div class="stack">
     <div class="row"><a href="#/sets" class="pill" style="display:flex;align-items:center">←</a></div>
     <div class="sethero"><div class="herologo">${setLogo(ib, 'biglogo', s.name, s.set_id)}</div><div class="col" style="align-items:center;text-align:center"><h1>${esc(s.name)}</h1><span class="muted">${esc(s.serie)} · ${esc(s.release_date || '')} · ${esc(LANGS[s.lang] || s.lang)}</span></div></div>
+    ${sealed.length ? `<div class="tbrow">${seg('stab', [['cards', 'Cartas'], ['sealed', `Sellado · ${sealed.filter(x => { const t = cmSealedType(x); return t && t !== 'other'; }).length}`]], SET_TAB)}<span></span></div>` : ''}
+    ${SET_TAB === 'sealed' && sealed.length ? `<div class="sgal sgal1">${sealedGallery(sealed.map(x => Object.assign(x, { cm_expansion_id: s.cm_expansion_id })), ib, s.name)}</div>
+      <p class="muted">Fotos: WikiDex. Precio: tendencia en Cardmarket. Toca un producto para ver su evolución, poner tu foto o lo que pagaste.</p></div>` : `
     <div class="card col" style="gap:8px" id="sethead"></div>
     ${browserControls()}
     ${MASTER ? `<div class="col" style="gap:6px"><span class="muted" style="font-size:13px">Versiones que cuentan en este set (desmarca las que no existen en tu idioma):</span>
       <div class="pills">${vtypes.map(t => `<button class="pill ${hidT.includes(t) ? '' : 'on'}" data-vt="${esc(t)}">${esc(t)}</button>`).join('')}</div></div>` : ''}
     ${!SHOW_NON_ES && nHidden ? `<span class="muted" style="font-size:13px">${nHidden} carta${nHidden > 1 ? 's' : ''} oculta${nHidden > 1 ? 's' : ''} porque no existe${nHidden > 1 ? 'n' : ''} en español. <a href="#/settings">Cambiar en Ajustes</a></span>` : ''}
     <div id="grid"></div>
-    ${sealed.length ? `<div class="col" style="gap:10px"><h2>Producto sellado</h2>${sealedTiles(sealed.map(x => Object.assign(x, { set_name: s.name })), ib)}</div>` : ''}
-    <p class="muted">Precios: ${PRICE_LABEL().toLowerCase()}${s.lang === 'es' ? ' (español e inglés juntos)' : ''}.</p></div>`;
+    <p class="muted">Precios: ${PRICE_LABEL().toLowerCase()}${s.lang === 'es' ? ' (español e inglés juntos)' : ''}.</p></div>`}`;
+  $view.querySelectorAll('[data-stab]').forEach(b => b.onclick = () => { SET_TAB = b.dataset.stab; viewSet(setId); });
+  if (SET_TAB === 'sealed' && sealed.length) { wireSealedTiles(() => viewSet(setId)); return; }
   wireControls(() => viewSet(setId));
   $view.querySelectorAll('[data-vt]').forEach(b => b.onclick = () => { COL.setHide ||= {}; const l = COL.setHide[setId] ||= []; const t = b.dataset.vt; const i = l.indexOf(t); if (i >= 0) l.splice(i, 1); else l.push(t); if (!l.length) delete COL.setHide[setId]; saveCol(); viewSet(setId); });
   wireSealedTiles(() => viewSet(setId));
@@ -603,6 +608,76 @@ function sealedArt(x, logoBase, cls = 'sealart') {
   return `<div class="${cls}"><svg viewBox="0 0 120 142" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%">${sealedShape(x.category)}</svg>
     <div class="seallogo">${setLogo(logoBase, 'setlogo', x.set_name || '')}</div>
     <span class="sealtype">${esc(SEALED_LABEL[x.category] || x.category.replace('Pokémon ', ''))}</span></div>`;
+}
+/* ---------- producto sellado del set: tipos, nombres en español y fotos (WikiDex, ver sellado.py) ---------- */
+const STYPE = { etb: 'Caja de Entrenador Élite', etbpc: 'Caja de Entrenador Élite', bb: 'Caja Combina y Combate', box: 'Caja de sobres', bundle: 'Lote de sobres',
+  premium: 'Colección', tin: 'Lata', blister: 'Blíster', booster: 'Sobre', deck: 'Baraja', other: 'Otros' };
+const STYPE_ORDER = ['etb', 'etbpc', 'box', 'bundle', 'bb', 'premium', 'tin', 'blister', 'booster', 'deck', 'other'];
+function cmSealedType(x) {
+  const n = x.name || '', c = x.category || '';
+  if (/\bCase\b/i.test(n) || c === 'Pokémon Coins' || c === 'Pokémon Lot') return null;   // cajas de cajas, monedas y lotes: fuera
+  if (c === 'Pokémon Elite Trainer Boxes') return /Pok[ée]mon Center/i.test(n) ? 'etbpc' : 'etb';
+  if (/Build & Battle/i.test(n)) return /Display/i.test(n) ? null : 'bb';
+  if (/Booster Bundle/i.test(n)) return 'bundle';
+  if (c === 'Pokémon Display' || /Booster Box/i.test(n)) return 'box';
+  if (c === 'Pokémon Blisters') return 'blister';
+  if (c === 'Pokémon Tins') return 'tin';
+  if (c === 'Pokémon Theme Decks' || c === 'Pokémon Trainer Kits') return 'deck';
+  if (c === 'Pokémon Booster') return /Fun Pack|Code Card/i.test(n) ? 'other' : 'booster';
+  if (c === 'Pokémon Box Set') return 'premium';
+  return 'other';
+}
+let EXP_PHOTOS = null;
+function photosFor(expId) {
+  if (!EXP_PHOTOS) { EXP_PHOTOS = {}; const S = window.SELLADO || {}, ids = Object.keys(S);
+    if (ids.length) q(`SELECT set_id, cm_expansion_id FROM sets WHERE set_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => { if (r.cm_expansion_id) EXP_PHOTOS[r.cm_expansion_id] = S[r.set_id]; }); }
+  return EXP_PHOTOS[expId] || [];
+}
+function photoScore(x, f) {
+  const words = (x.name || '').replace(/[:()\-]/g, ' ').split(/\s+/).filter(w => w.length > 3 && /^[A-ZÉ]/.test(w) && !/^(Pack|Blister|Premium|Checklane|Booster|Elite|Trainer|Collection|Build|Battle|Sleeved|Bundle|Display)$/i.test(w)).map(w => w.toLowerCase());
+  const en = (q('SELECT name_en FROM sets WHERE cm_expansion_id = ? AND name_en IS NOT NULL LIMIT 1', [x.cm_expansion_id])[0] || {}).name_en || '';
+  const packs = ((x.name || '').match(/(\d+)-Pack/i) || [])[1];
+  return (words.some(w => !en.toLowerCase().includes(w) && f.n.toLowerCase().includes(w)) ? 2 : 0) + (packs && new RegExp('\\b' + packs + ' sobres?\\b', 'i').test(f.n) ? 1 : 0);
+}
+// Busca la foto que mejor encaja: mismo tipo y, si puede, mismo Pokémon o número de sobres
+function sealedPhoto(x) {
+  const t = cmSealedType(x) || 'other', ph = photosFor(x.cm_expansion_id); if (!ph.length) return null;
+  const score = f => photoScore(x, f);
+  const strict = ['blister', 'tin', 'premium', 'deck'].includes(t);   // aquí cada producto es distinto: solo foto si coincide el Pokémon
+  const pick = (ty) => ph.filter(f => f.t === ty && (!strict || ty !== t || score(f) >= 2)).sort((a, b) => score(b) - score(a))[0];
+  return pick(t) || (t === 'etbpc' ? pick('etb') : null) || (['box', 'bundle'].includes(t) ? pick('booster') : null);
+}
+function sealedEsName(x, setName) {
+  const t = cmSealedType(x) || 'other', n = x.name || '', ph = sealedPhoto(x);
+  const specific = ['blister', 'tin', 'premium', 'booster', 'deck'].includes(t);
+  if (ph && ph.t === t && (!specific || photoScore(x, ph) >= 2) && !/Pok[ée]mon Center|Sleeved/i.test(n)) return ph.n;
+  const extra = [];
+  let who = (n.includes(':') ? n.split(':').slice(1).join(':') : '').replace(/Premium Checklane|Blister|\d+-Pack|Mini Tin|Tin|Premium Collection|Collection|Box|Pok[ée]mon Center/gi, '').replace(/\s{2,}/g, ' ').trim();
+  if (who) extra.push(who);
+  if (/Pok[ée]mon Center/i.test(n)) extra.push('Pokémon Center');
+  if (/Sleeved/i.test(n)) extra.push('con funda');
+  const bx = n.match(/\((\d+) Boosters?\)/i); if (bx) extra.push(bx[1] + ' sobres');
+  const pk = n.match(/(\d+)-Pack/i); if (pk) extra.push(pk[1] === '1' ? '1 sobre' : pk[1] + ' sobres');
+  if (/Premium Checklane/i.test(n)) extra.push('prémium');
+  const label = t === 'tin' && /Mini Tin/i.test(n) ? 'Minilata' : STYPE[t];
+  return `${label}${setName ? ' ' + setName : ''}${extra.length ? ' · ' + extra.join(' · ') : ''}`;
+}
+function sealedPhotoTag(x, logoBase, cls = '') {
+  if (CUSTOM_IMG['sealed:' + x.cm_product_id]) return `<img class="${cls}" src="${CUSTOM_IMG['sealed:' + x.cm_product_id]}" alt="">`;
+  const ph = sealedPhoto(x);
+  return ph ? `<img class="${cls} wdx" loading="lazy" src="${esc(ph.u)}" alt="${esc(ph.n)}">` : sealedArt(x, logoBase);
+}
+// Dentro del set sobra repetir su nombre: «Blíster de 1 sobre Caos Creciente Toxel» → «Blíster de 1 sobre Toxel»
+const shortSealed = (n, setName) => setName ? n.replace(new RegExp('\\s*(de\\s+)?' + setName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), '').replace(/\s{2,}/g, ' ').replace(/^\s*·\s*|\s*·\s*$/g, '').trim() : n;
+function sealedGallery(list, logoBase, setName) {
+  const rows = list.map(x => ({ x, t: cmSealedType(x) })).filter(r => r.t && r.t !== 'other').sort((a, b) => STYPE_ORDER.indexOf(a.t) - STYPE_ORDER.indexOf(b.t) || (rPrice(b.x) || 0) - (rPrice(a.x) || 0));
+  if (!rows.length) return '<p class="muted">No hay producto sellado de este set en Cardmarket.</p>';
+  let last = null;
+  return rows.map(({ x, t }) => { const own = COL.sealed[x.cm_product_id], head = STYPE[t] !== last ? (last = STYPE[t], `<h3 class="shead">${esc(STYPE[t])}</h3>`) : '';
+    return `${head}<a class="scard srow" href="#/sealeditem/${x.cm_product_id}">
+      <div class="sphoto">${sealedPhotoTag(x, logoBase)}${own ? `<span class="sqty">✓${own.qty > 1 ? ' ×' + own.qty : ''}</span>` : ''}</div>
+      <div class="sinfo"><b class="sname">${esc(shortSealed(sealedEsName(x, ''), setName))}</b><div class="between" style="align-items:center"><b class="sprice">${eur(rPrice(x))}</b>
+      <button class="sadd ${own ? 'on' : ''}" data-sealed="${x.cm_product_id}" aria-label="${own ? 'Cambiar unidades' : 'La tengo'}" onclick="event.preventDefault()">${own ? (own.qty > 1 ? own.qty : '✓') : '＋'}</button></div></div></a>`; }).join('');
 }
 function sealedTiles(list, logoBase) {
   const sorted = list.slice().sort((a, b) => (SEALED_ORDER.indexOf(a.category) + 1 || 99) - (SEALED_ORDER.indexOf(b.category) + 1 || 99) || (rPrice(b) || 0) - (rPrice(a) || 0));
@@ -635,7 +710,7 @@ function viewSealedItem(id) {
   $view.innerHTML = `<div class="stack">
     <div class="row"><a href="${COL.sealed[id] ? '#/sealed' : x.set_id ? '#/set/' + encodeURIComponent(x.set_id) : '#/sealed'}" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><span class="muted">${esc(x.set_name || '')} · ${esc(SEALED_LABEL[x.category] || x.category)}</span></div>
     <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
-      <div class="col" style="gap:8px;align-items:flex-start"><div class="sdetail">${CUSTOM_IMG['sealed:' + id] ? `<img src="${CUSTOM_IMG['sealed:' + id]}" alt="" style="width:100%;height:100%;object-fit:cover">` : sealedArt(x, x.ib, 'sealart big')}</div>
+      <div class="col" style="gap:8px;align-items:flex-start"><div class="sdetail">${CUSTOM_IMG['sealed:' + id] ? `<img src="${CUSTOM_IMG['sealed:' + id]}" alt="" style="width:100%;height:100%;object-fit:cover">` : sealedPhoto(x) ? sealedPhotoTag(x, x.ib) : sealedArt(x, x.ib, 'sealart big')}</div>
         <div class="row" style="flex-wrap:wrap;gap:6px;max-width:180px"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG['sealed:' + id] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="simg" accept="image/*" hidden></label>${CUSTOM_IMG['sealed:' + id] ? '<button class="pill" id="sdel" style="font-size:13px">Quitar</button>' : ''}</div></div>
       <div class="col" style="gap:8px;flex:1;min-width:200px"><h1>${esc(x.name)}</h1>
         <div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}</span>
@@ -1148,7 +1223,7 @@ function viewWishlist() {
 const TYPES = { single: 'Carta suelta', sobres: 'Sobres', etb: 'ETB', caja: 'Caja / display', lata: 'Lata / colección', otro: 'Otro' };
 function sealedPrices(ids) {
   const out = {}; if (!ids.length) return out;
-  q(`SELECT p.cm_product_id, p.name, p.category, pr.trend, pr.avg30, pr.avg7, pr.low, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name, s.set_id,
+  q(`SELECT p.cm_product_id, p.name, p.category, pr.trend, pr.avg30, pr.avg7, pr.low, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name, s.set_id, p.cm_expansion_id,
      (SELECT image_base FROM cards c WHERE c.set_id = s.set_id LIMIT 1) ib
      FROM cm_products p LEFT JOIN prices pr USING(cm_product_id) LEFT JOIN sets s ON s.set_id = (SELECT MIN(set_id) FROM sets x WHERE x.cm_expansion_id = p.cm_expansion_id)
      WHERE p.cm_product_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => out[r.cm_product_id] = r);
@@ -1297,9 +1372,9 @@ function viewSealed() {
       ${series.length > 1 ? `<div style="margin-top:8px">${chartSvg(series, 700, 90)}</div>` : ''}</div>
     <div id="sfind" class="col" style="gap:8px;display:none"><input type="search" id="sq2" placeholder="Busca: Elite Trainer Box Fulgor Negro, caja de sobres…"><div class="list" id="sres"></div></div>
     ${rows.length ? `<div class="sgal">${rows.map(x => `<a class="scard" href="#/sealeditem/${x.id}">
-        <div class="sphoto">${CUSTOM_IMG['sealed:' + x.id] ? `<img src="${CUSTOM_IMG['sealed:' + x.id]}" alt="">` : sealedArt(x.r, x.r.ib)}
+        <div class="sphoto">${CUSTOM_IMG['sealed:' + x.id] ? `<img src="${CUSTOM_IMG['sealed:' + x.id]}" alt="">` : sealedPhoto(x.r) ? sealedPhotoTag(x.r, x.r.ib) : sealedArt(x.r, x.r.ib)}
           ${x.qty > 1 ? `<span class="sqty">×${x.qty}</span>` : ''}
-          ${CUSTOM_IMG['sealed:' + x.id] ? '' : `<label class="sphotobtn" aria-label="Hacer foto" onclick="event.stopPropagation()">📷<input type="file" accept="image/*" capture="environment" data-sphoto="${x.id}" hidden></label>`}</div>
+          ${CUSTOM_IMG['sealed:' + x.id] || sealedPhoto(x.r) ? '' : `<label class="sphotobtn" aria-label="Hacer foto" onclick="event.stopPropagation()">📷<input type="file" accept="image/*" capture="environment" data-sphoto="${x.id}" hidden></label>`}</div>
         <div class="sinfo"><span class="stype">${esc(SEALED_LABEL[x.r.category] || (x.r.category || '').replace('Pokémon ', ''))}${x.r.set_name ? ' · ' + esc(x.r.set_name) : ''}</span>
           <b class="sname">${esc(x.r.name || 'Producto ' + x.id)}</b>
           <div class="between"><b>${eur(x.now)}</b>${x.g != null ? `<span class="schip ${x.g >= 0 ? 'up' : 'down'}">${pct((x.now - x.e.buy) / x.e.buy * 100)}</span>` : ''}</div></div></a>`).join('')}</div>`
@@ -1582,7 +1657,7 @@ function calEntries() {
   const out = db.map(s => ({ id: 'set:' + s.set_id, fecha: s.release_date, idioma: s.lang, nombre: s.lang === 'ja' && s.name_en && s.name_ja ? `${s.name_ja} · ${s.name_en}` : s.name, set: s.set_id, tipo: 'Set' }));
   const seen = new Set(out.map(e => e.set).concat(out.map(e => e.idioma + e.fecha)));
   (window.CALENDARIO || []).forEach(c => { if (c.set && seen.has(c.set)) return; if (!c.set && seen.has(c.idioma + c.fecha)) return; if (c.fecha >= desde) out.push(c); });
-  return out.sort((a, b) => a.fecha < b.fecha ? -1 : 1).map(e => ({ ...e, dias: daysTo(e.fecha), pasado: e.fecha < hoy }));
+  return out.filter(e => e.idioma === 'es' && e.fecha >= hoy).sort((a, b) => a.fecha < b.fecha ? -1 : 1).map(e => ({ ...e, dias: daysTo(e.fecha), pasado: false }));   // solo lo que va a salir en España
 }
 const calAviso = id => ((COL.cal || []).includes(id));
 function viewCalendar() {
@@ -1590,21 +1665,20 @@ function viewCalendar() {
   const day = e => { const [y, m, d] = e.fecha.split('-'); return `<div class="calday"><b>${+d}</b><span>${MESES[+m - 1]} ${y.slice(2)}</span></div>`; };
   const row = e => `<div class="item calrow">${day(e)}<a ${e.set ? `href="#/set/${encodeURIComponent(e.set)}"` : e.fuente ? `href="${esc(e.fuente)}" target="_blank" rel="noopener"` : ''} class="col" style="flex:1;min-width:0;color:var(--tx)">
       <b>${esc(e.nombre)}</b>
-      <span class="muted"><span class="lang">${e.idioma === 'ja' ? 'JP' : 'ES'}</span> ${esc(cdText(e.dias))}${e.codigo ? ' · ' + esc(e.codigo) : ''}${e.nota ? ' · ' + esc(e.nota) : ''}</span></a>
+      <span class="muted">${esc(cdText(e.dias))}${e.codigo ? ' · ' + esc(e.codigo) : ''}${e.nota ? ' · ' + esc(e.nota) : ''}</span></a>
       ${!e.pasado ? `<button class="pill ${calAviso(e.id) ? 'on' : ''}" data-cal="${esc(e.id)}" aria-pressed="${calAviso(e.id)}" aria-label="Avisarme el día que salga">${calAviso(e.id) ? '🔔' : '🔕'}</button>` : ''}</div>`;
   $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1>Lanzamientos</h1></div>
-    ${N ? `<div class="calnext"><span style="opacity:.8">Próximo lanzamiento · ${N.idioma === 'ja' ? 'Japón' : 'España'}</span><b style="font-size:22px">${esc(N.nombre)}</b>
+    ${N ? `<div class="calnext"><span style="opacity:.8">Próximo lanzamiento en España</span><b style="font-size:22px">${esc(N.nombre)}</b>
       <span class="cd">${N.dias === 0 ? '¡Hoy!' : N.dias === 1 ? 'Mañana' : N.dias + ' días'}</span><span style="opacity:.8">${+N.fecha.slice(8)} de ${MESES[+N.fecha.slice(5, 7) - 1]} de ${N.fecha.slice(0, 4)}${N.nota ? ' · ' + esc(N.nota) : ''}</span></div>` : ''}
     <h2>Próximos</h2><div class="list">${next.map(row).join('') || '<p class="muted">No hay ningún lanzamiento anunciado todavía.</p>'}</div>
     <span class="muted">🔔 te manda un aviso al móvil la mañana en que sale (necesitas los avisos activados en Ajustes).</span>
-    ${past.length ? `<h2>Recién salidos</h2><div class="list">${past.map(row).join('')}</div>` : ''}
     <p class="muted">Los sets entran solos en la app cuando se añaden a la base de datos. Los anunciados que aún no están, los apunto a mano: pídemelo cuando anuncien uno nuevo.</p></div>`;
   $view.querySelectorAll('[data-cal]').forEach(b => b.onclick = () => { const id = b.dataset.cal; COL.cal = COL.cal || []; const i = COL.cal.indexOf(id);
     if (i >= 0) COL.cal.splice(i, 1); else COL.cal.push(id); saveCol(); toast(i >= 0 ? 'Aviso quitado' : 'Te avisaré el día que salga'); viewCalendar(); });
 }
 function calBanner() {
   const N = calEntries().find(e => !e.pasado && e.dias <= 21);
-  return N ? `<a class="card row" href="#/calendario" style="gap:12px;align-items:center;color:var(--tx)"><span style="font-size:26px">📅</span><div class="col" style="flex:1"><b>${esc(N.nombre)}</b><span class="muted">${N.idioma === 'ja' ? 'Japón' : 'España'} · ${esc(cdText(N.dias))}</span></div>→</a>` : '';
+  return N ? `<a class="card row" href="#/calendario" style="gap:12px;align-items:center;color:var(--tx)"><span style="font-size:26px">📅</span><div class="col" style="flex:1"><b>${esc(N.nombre)}</b><span class="muted">${esc(cdText(N.dias))}</span></div>→</a>` : '';
 }
 
 /* ---------- recibir un precio del Atajo: #/precio?cm=886509&p=115.00&l=ES&c=NM&r=0 ---------- */
@@ -1659,7 +1733,7 @@ async function applyPendingReal() {
 function viewMore() {
   const n = k => Object.keys(COL[k] || {}).length;
   $view.innerHTML = `<div class="stack"><h1>Más</h1><div class="list">
-    <a class="item" href="#/calendario"><div class="col" style="flex:1"><b>Lanzamientos</b><span class="muted">Próximos sets en español y japonés, con cuenta atrás</span></div>→</a>
+    <a class="item" href="#/calendario"><div class="col" style="flex:1"><b>Lanzamientos</b><span class="muted">Próximos sets que salen en España, con cuenta atrás</span></div>→</a>
     <a class="item" href="#/stats"><div class="col" style="flex:1"><b>Tu colección en números</b><span class="muted">Tu ilustrador, tu Pokémon y tu año favoritos, tu carta más cara…</span></div>→</a>
     <a class="item" href="#/show"><div class="col" style="flex:1"><b>Enseñar colección</b><span class="muted">Tus archivadores a pantalla completa, sin precios</span></div>→</a>
     <a class="item" href="#/buy"><div class="col" style="flex:1"><b>Qué comprar este mes</b><span class="muted">Reparte tu presupuesto entre lo que te falta</span></div>→</a>
