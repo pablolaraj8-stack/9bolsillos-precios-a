@@ -40,10 +40,10 @@ const LOGO_ERR = "var l=(this.dataset.fb||'').split('|').filter(Boolean);if(l.le
 const CM_LANG = { int: 4, asia: 7 }, CM_COND = { MT: 1, NM: 2, EX: 3, GD: 4, LP: 5, PL: 6, PO: 7 };
 const cmCond = () => { try { return localStorage.getItem('cm_cond') || 'NM'; } catch (e) { return 'NM'; } };
 const cmFilter = region => `language=${CM_LANG[region] || 4}&minCondition=${CM_COND[cmCond()] || 2}`;
-function cmProductLink(cm, region) { return `https://www.cardmarket.com/es/Pokemon/Products?idProduct=${cm}&${cmFilter(region)}`; }
+function cmProductLink(cm, region, rev) { return `https://www.cardmarket.com/es/Pokemon/Products?idProduct=${cm}&${cmFilter(region)}${rev ? '&isReverseHolo=Y' : ''}`; }
 function cmLink(v, c) {
   const region = (c && c.region) || (c && c.card_id && (q('SELECT s.region FROM cards c JOIN sets s USING(set_id) WHERE card_id=?', [c.card_id])[0] || {}).region) || 'int';
-  if (v && v.cm_product_id) return cmProductLink(v.cm_product_id, region);
+  if (v && v.cm_product_id) return cmProductLink(v.cm_product_id, region, isRevHolo(v));
   return 'https://www.cardmarket.com/es/Pokemon/Products/Singles?searchString=' + encodeURIComponent((c && (c.name_en || c.name)) || '');
 }
 function cardImg(c, size, cls, alt) { return CUSTOM_IMG[c.card_id] ? `<img ${cls ? `class="${cls}"` : ''} alt="${esc(alt || '')}" src="${CUSTOM_IMG[c.card_id]}">` : imgTag(c.image_base, size, cls, alt || '', '', (window.IMG_FB || {})[c.card_id] || ''); }
@@ -116,8 +116,17 @@ function openDb(bytes) {
 // Modo de precio elegido en Ajustes: 'trend' (tendencia) o 'low' (oferta más baja publicada)
 let PRICE_MODE = (() => { try { return localStorage.getItem('9b.priceMode') || 'trend'; } catch (e) { return 'trend'; } })();
 const PRICE_LABEL = () => PRICE_MODE === 'low' ? 'Oferta más baja en Cardmarket' : 'Tendencia en Cardmarket';
+/* ---------- precio real: la oferta más baja que tú has visto en Cardmarket (Atajo «Precio a 9B») ---------- */
+const REAL_DAYS = 45;   // a partir de aquí se considera antiguo y se vuelve a la tendencia
+const realKey = (cm, rev) => cm + (rev ? '|r' : '');
+const realOf = (cm, rev) => cm ? (COL.real || {})[realKey(cm, rev)] || null : null;
+const realAge = r => r ? Math.max(0, Math.round((Date.now() - new Date(r.d + 'T12:00:00')) / 864e5)) : null;
+const realFresh = r => r && realAge(r) <= REAL_DAYS;
+const ageTxt = n => n === 0 ? 'hoy' : n === 1 ? 'ayer' : `hace ${n} días`;
+function realLabel(r) { return r ? `Oferta más baja ${r.l || 'ES'} (${r.c || 'NM'} o mejor) · ${ageTxt(realAge(r))}` : ''; }
 function vPrice(v) {
   if (!v) return null;
+  { const r = realOf(v.cm_product_id, isRevHolo(v)); if (realFresh(r)) return r.p; }
   if (isRevHolo(v)) return PRICE_MODE === 'low' ? (v.low_holo ?? v.trend_holo ?? v.avg30_holo ?? null) : (v.trend_holo ?? v.avg30_holo ?? v.low_holo ?? null);
   return PRICE_MODE === 'low' ? (v.low ?? v.trend ?? v.avg30 ?? null) : (v.trend ?? v.avg30 ?? v.low ?? null);
 }
@@ -682,7 +691,7 @@ function ordenData(ord) {
   E.forEach(e => { const r = e.id && info[e.id]; if (e.id && !r) delete e.id; if (r) { e.set_id = r.set_id; e.image_base = r.image_base; e.card_id = r.card_id; } e.pr = e.cm ? pr[e.cm] : null; });
   return { E, vmap };
 }
-function ordenPrice(name, e, vmap) { if (e.id) return COL.cards[e.id] ? vPrice(ownedVariant(e.id, vmap[e.id])) : cheapest(vmap[e.id]); return e.cm ? rPrice(e.pr) : null; }
+function ordenPrice(name, e, vmap) { if (e.id) return COL.cards[e.id] ? vPrice(ownedVariant(e.id, vmap[e.id])) : cheapest(vmap[e.id]); if (!e.cm) return null; const r = realOf(e.cm); return realFresh(r) ? r.p : rPrice(e.pr); }
 const ordenImgKey = (name, e) => 'orden:' + name.toLowerCase() + ':' + e.o;
 function ordenImg(e, cls = '', name = '') { const mine = name && CUSTOM_IMG[ordenImgKey(name, e)]; if (mine) return `<img ${cls ? `class="${cls}"` : ''} loading="lazy" alt="${esc(e.n)}" src="${esc(mine)}">`; return e.id ? cardImg(e, cls ? 'high' : 'low', cls, e.n) : e.img ? `<img ${cls ? `class="${cls}"` : ''} loading="lazy" alt="${esc(e.n)}" src="${esc((window.ORDEN_IMGS || {})[e.img] || ORDEN_IMG + e.img)}" onerror="this.remove()">` : ''; }
 function viewOrden(name, ord) {
@@ -747,7 +756,7 @@ function viewOrdenCard(key, o) {
       <div class="row"><a href="#/illustrator/${encodeURIComponent(name)}" class="pill" id="cback" style="display:flex;align-items:center" aria-label="Volver">←</a><span class="muted">${esc(name)} · #${e.o} de ${E.length}</span></div>
       <div class="cardhero">${ordenImg(e, 'hero', name) || `<div class="hero" style="display:flex;align-items:center;justify-content:center;padding:12px;text-align:center">${esc(e.n)}<br>Sin foto</div>`}
         <h1>${esc(e.n)}</h1><span class="muted">${esc(e.s)} · ${esc(e.no)} · ${esc(e.d)}</span>
-        ${p != null ? `<div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}</span>` : `<span class="muted">${e.cm ? 'Sin precio hoy en Cardmarket' : 'Sin precio: no está enlazada con Cardmarket'}</span>`}
+        ${p != null ? `<div class="big">${eur(p)}</div>${realFresh(realOf(e.cm)) ? `<span class="realtag">✓ ${esc(realLabel(realOf(e.cm)))}</span>` : `<span class="muted">${PRICE_LABEL()}</span>`}` : `<span class="muted">${e.cm ? 'Sin precio hoy en Cardmarket' : 'Sin precio: no está enlazada con Cardmarket'}</span>`}
         <a class="btn cmbtn" target="_blank" rel="noopener" href="${esc(cmUrl)}">Ver en Cardmarket ↗</a>
         ${e.note ? `<span class="muted" style="color:var(--down)">${esc(e.note)}</span>` : ''}
         <span class="muted">📒 En tu archivador: ${spotTxt(binderSpot('orden:' + name, E.indexOf(e)))}</span>
@@ -971,7 +980,9 @@ function viewCard(cardId) {
       <div class="row"><a href="#/set/${encodeURIComponent(c.set_id)}" class="pill" id="cback" style="display:flex;align-items:center" aria-label="Volver">←</a><span class="muted">${esc(c.set_name)} · ${esc(c.local_id)}${c.card_count ? '/' + c.card_count : ''}${c.rarity && c.rarity !== 'None' ? ' · ' + esc(c.rarity) : ''}</span></div>
       <div class="cardhero" style="${(!c.kind || c.kind === 'Pokemon') ? typeGlow(c.dex_id) : ''}">${cardImg(c, 'high', 'hero', c.name)}
         <h1>${esc(c.name)}</h1>${c.name_ja && c.name_ja !== c.name ? `<span class="muted">${esc(c.name_ja)}</span>` : ''}${c.name_en && c.name_en !== c.name ? `<span class="muted">${esc(c.name_en)}</span>` : ''}
-        <div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}${hol ? ' (reverse holo)' : ''}${PRICE_MODE === 'low' ? ' · cualquier idioma y estado' : ''}</span>
+        <div class="big">${eur(p)}</div>${(() => { const r = sel && realOf(sel.cm_product_id, hol); return realFresh(r)
+          ? `<span class="realtag">✓ ${esc(realLabel(r))}${hol ? ' · reverse holo' : ''}</span>`
+          : `<span class="muted">${PRICE_LABEL()}${hol ? ' (reverse holo)' : ''}${PRICE_MODE === 'low' ? ' · cualquier idioma y estado' : ''}${r ? ` · tu precio real es antiguo (${ageTxt(realAge(r))})` : ''}</span>`; })()}
         ${sel && sel.ambiguous ? '<span class="down" style="font-size:13px">Ojo: este precio podría corresponder a otra versión de la carta.</span>' : ''}
         ${sel ? `<a class="btn cmbtn" target="_blank" rel="noopener" href="${cmLink(sel, c)}">Ver en Cardmarket ↗</a>` : ''}
         ${vs.length > 1 ? `<label class="f" style="width:100%;max-width:340px;text-align:left">Versión<select id="vsel">${vs.map((v, i) => `<option value="${i}" ${v === sel ? 'selected' : ''}>${esc(vLabel(v))} — ${eur(vPrice(v))}</option>`).join('')}</select></label>` : `<span class="muted">${sel ? esc(vLabel(sel)) : 'Sin precio en Cardmarket'}</span>`}
@@ -1545,6 +1556,27 @@ function calBanner() {
   return N ? `<a class="card row" href="#/calendario" style="gap:12px;align-items:center;color:var(--tx)"><span style="font-size:26px">📅</span><div class="col" style="flex:1"><b>${esc(N.nombre)}</b><span class="muted">${N.idioma === 'ja' ? 'Japón' : 'España'} · ${esc(cdText(N.dias))}</span></div>→</a>` : '';
 }
 
+/* ---------- recibir un precio del Atajo: #/precio?cm=886509&p=115.00&l=ES&c=NM&r=0 ---------- */
+function viewRecvPrice(qs) {
+  const P = new URLSearchParams(qs || ''), cm = parseInt(P.get('cm'), 10), price = parseFloat(String(P.get('p') || '').replace(/\./g, '').replace(',', '.')) || parseFloat(P.get('p'));
+  const rev = P.get('r') === '1', l = (P.get('l') || 'ES').toUpperCase(), c = (P.get('c') || 'NM').toUpperCase();
+  const back = '<a href="#/" class="btn" style="align-self:flex-start">Ir a 9Bolsillos</a>';
+  if (!cm || !(price > 0)) { $view.innerHTML = `<div class="stack"><h1>No he podido leer el precio</h1><p class="muted">Abre la carta en Cardmarket (desde el botón ↗ de 9B), espera a que se vean las ofertas y vuelve a usar el Atajo.</p>${back}</div>`; return; }
+  const today = todayISO();
+  (COL.real ||= {})[realKey(cm, rev)] = { p: Math.round(price * 100) / 100, d: today, l, c };
+  saveCol();
+  try { history.replaceState(null, '', '#/'); } catch (e) {}   // para que al volver a abrir la app no se guarde otra vez
+  const card = q(`SELECT c.card_id, c.set_id, c.local_id, c.image_base, ${NAME} name, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name, s.region FROM card_variants v JOIN cards c USING(card_id) JOIN sets s USING(set_id)
+    WHERE v.cm_product_id = ? ORDER BY (s.lang = 'es') DESC LIMIT 1`, [cm])[0];
+  let ord = null; if (!card) for (const [key, o] of Object.entries(window.ORDEN || {})) { const e = (o.cartas || []).find(x => x.cm === cm); if (e) { ord = { key, e }; break; } }
+  const link = card ? '#/card/' + encodeURIComponent(card.card_id) : ord ? ordenRoute(ord.key.replace(/\b\w/g, m => m.toUpperCase()), ord.e) : '#/';
+  $view.innerHTML = `<div class="stack" style="align-items:center;text-align:center;padding-top:20px">
+    <div style="font-size:44px">✓</div><h1>Precio guardado</h1>
+    ${card ? `<div style="width:150px">${cardImg(card, 'low', 'hero', card.name)}</div><b>${esc(card.name)}</b><span class="muted">${esc(card.set_name)} · ${esc(card.local_id)}</span>` : ord ? `<b>${esc(ord.e.n)}</b><span class="muted">${esc(ord.e.s)} · Mi orden</span>` : `<span class="muted">Producto ${cm} de Cardmarket (no está en tu base de datos todavía)</span>`}
+    <div class="big">${eur(price)}</div><span class="realtag">${esc(realLabel(COL.real[realKey(cm, rev)]))}${rev ? ' · reverse holo' : ''}</span>
+    <a href="${link}" class="btn" style="display:flex;align-items:center;justify-content:center">Ver la carta</a>
+    <span class="muted" style="font-size:13px">Se usa en el valor de tu colección, en «Qué comprar» y en los avisos durante ${REAL_DAYS} días.</span></div>`;
+}
 function viewMore() {
   const n = k => Object.keys(COL[k] || {}).length;
   $view.innerHTML = `<div class="stack"><h1>Más</h1><div class="list">
@@ -1748,7 +1780,8 @@ async function syncNow(quiet) {
 }
 function mergeCols(a, b) {
   const out = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, hide: {}, setHide: {} }, a);
-  for (const k of ['cards', 'sealed', 'alerts', 'illustrators', 'sell', 'hide', 'extra', 'binders']) out[k] = Object.assign({}, a[k] || {}, b[k] || {});
+  for (const k of ['cards', 'sealed', 'alerts', 'illustrators', 'sell', 'hide', 'extra', 'binders', 'real']) out[k] = Object.assign({}, a[k] || {}, b[k] || {});
+  out.real = {}; for (const src of [a.real || {}, b.real || {}]) for (const [k, v] of Object.entries(src)) if (!out.real[k] || (v.d || '') >= (out.real[k].d || '')) out.real[k] = v;
   out.master = Object.assign({}, a.master || {}); for (const [id, m] of Object.entries(b.master || {})) out.master[id] = Object.assign({}, out.master[id] || {}, m);
   out.setHide = Object.assign({}, a.setHide || {}); for (const [id, l] of Object.entries(b.setHide || {})) out.setHide[id] = [...new Set([...(out.setHide[id] || []), ...l])];
   const ids = new Set((a.purchases || []).map(p => p.id)); out.purchases = (a.purchases || []).concat((b.purchases || []).filter(p => !ids.has(p.id)));
@@ -1858,6 +1891,7 @@ function route() {
   if (a === 'card' || a === 'ocard') { if (LIST_CTX && LIST_CTX.includes(location.hash)) NAV_CTX = LIST_CTX; else if (!(NAV_CTX && NAV_CTX.includes(location.hash))) NAV_CTX = null; } else LIST_CTX = null;
   try {
     if (!a) viewHome();
+    else if (a.startsWith('precio')) viewRecvPrice(a.split('?')[1] || '');
     else if (a === 'sets') viewSets();
     else if (a === 'set') viewSet(b);
     else if (a === 'illustrators') viewIllustrators();
