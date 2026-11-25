@@ -106,6 +106,7 @@ def load_tcgdex(root):
                                       rarity=(lambda r: None if r in (None, "None") else r)(first(r"\n\trarity:\s*['\"]([^'\"]+)", ct)),  # TCGdex pone "None" si no hay rareza
                                       dex=int(dex) if dex else None, name_local=local_name,
                                       illustrator=first(r"\n\tillustrator:\s*['\"]([^'\"]+)", ct),
+                                      kind=first(r"\n\ttrainerType:\s*['\"]([^'\"]+)", ct) or first(r"\n\tcategory:\s*['\"]([^'\"]+)", ct),
                                       image=IMG.format(lang=img_lang, serie=serie_id, set=set_id, local=local),
                                       variants=parse_variants(ct),
                                       sig=attack_sig(ct) if region == "int" else None))
@@ -135,7 +136,7 @@ CREATE TABLE sets(
 CREATE TABLE cards(
   card_id TEXT PRIMARY KEY, set_id TEXT REFERENCES sets(set_id), local_id TEXT,
   name_es TEXT, name_en TEXT, name_ja TEXT, rarity TEXT, dex_id INTEGER, image_base TEXT,
-  name_local TEXT, illustrator TEXT);
+  name_local TEXT, illustrator TEXT, kind TEXT);
 CREATE TABLE cm_products(
   cm_product_id INTEGER PRIMARY KEY, kind TEXT, name TEXT, category TEXT,
   cm_expansion_id INTEGER, date_added TEXT);
@@ -218,9 +219,9 @@ def main():
     db.executemany("INSERT OR IGNORE INTO sets VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                    [(s["set_id"], s["region"], s["serie"], s["name_es"], s["name_en"], s["name_ja"],
                      s["release"], s["count"], s["cm_exp"], s["lang"], s.get("name_local")) for s in sets])
-    db.executemany("INSERT OR IGNORE INTO cards VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+    db.executemany("INSERT OR IGNORE INTO cards VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                    [(c["card_id"], c["set_id"], c["local"], c["name_es"], c["name_en"], c["name_ja"],
-                     c["rarity"], c["dex"], c["image"], c["name_local"], c["illustrator"]) for c in cards])
+                     c["rarity"], c["dex"], c["image"], c["name_local"], c["illustrator"], c.get("kind")) for c in cards])
 
     # Nº de Pokédex que falta en TCGdex (sobre todo sets nuevos): se copia de otra carta del mismo Pokémon
     def dex_key(n):

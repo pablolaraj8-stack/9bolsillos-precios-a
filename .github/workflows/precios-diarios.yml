@@ -6,7 +6,7 @@ on:
   workflow_dispatch:        # botón "Run workflow" para lanzarlo a mano
   push:
     branches: [main]
-    paths: ["app/**", "build_db.py", "update_prices.py", "export_web.py", ".github/workflows/**"]
+    paths: ["app/**", "build_db.py", "update_prices.py", "export_web.py", "wikidex.py", ".github/workflows/**"]
 
 permissions:
   contents: write
@@ -56,6 +56,12 @@ jobs:
             --prices price_guide.json --history-from anterior.db --out 9bolsillos.db \
           || (echo "La reconstrucción falló: solo se actualizan los precios" && cp anterior.db 9bolsillos.db && python3 update_prices.py --db 9bolsillos.db --prices price_guide.json)
 
+      - name: Quién es o dónde está (resúmenes de WikiDex para partidarios y estadios)
+        continue-on-error: true
+        run: |
+          curl -fsSL "https://pablolaraj8-stack.github.io/9bolsillos-precios-a/entrenadores.json" -o entrenadores_prev.json || echo '{}' > entrenadores_prev.json
+          python3 wikidex.py --db 9bolsillos.db --prev entrenadores_prev.json --out entrenadores.json
+
       - name: Guardar la base de datos actualizada
         env:
           GH_TOKEN: ${{ github.token }}
@@ -68,6 +74,7 @@ jobs:
           # Fuerza a los móviles a bajar los archivos nuevos en cada publicación (evita que se queden con la versión vieja en caché)
           sed -i -E "s/\?v=[0-9a-z]+/?v=${GITHUB_SHA::7}/g" _site/index.html
           python3 export_web.py --db 9bolsillos.db --out _site
+          cp entrenadores.json _site/ 2>/dev/null || cp entrenadores_prev.json _site/entrenadores.json 2>/dev/null || true
           ls -la _site | head -40
           cat _site/version.json
 

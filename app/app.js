@@ -928,6 +928,22 @@ let CARD_NAV = null;
     } else reset(true);
   });
 })();
+/* ---------- quién es o dónde está: partidarios y estadios (resúmenes de WikiDex, se generan cada día en GitHub) ---------- */
+const TRAINER_KIND = { Supporter: 'Partidario', Stadium: 'Estadio' };
+let TRAINERS = null, TRAINERS_P = null;
+const loadTrainers = () => TRAINERS_P ||= fetch('entrenadores.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : {}).catch(() => ({})).then(d => (TRAINERS = d));
+function trainerInfoHTML(c) {
+  const t = TRAINERS && TRAINERS[c.name_es || c.name];
+  if (!t || t.miss) return '';
+  return `<div class="between"><b>${t.k === 'p' ? '👤 Quién es' : '📍 Dónde está'}</b><span class="row" style="gap:6px"><span class="tchip">${TRAINER_KIND[c.kind]}</span>${t.r ? `<span class="tchip">${esc(t.r)}</span>` : ''}</span></div>
+    ${t.t !== c.name ? `<b style="font-size:17px">${esc(t.t)}</b>` : ''}
+    <p style="margin:0;line-height:1.45">${esc(t.x)}</p>
+    <a class="muted" style="font-size:13px" target="_blank" rel="noopener" href="https://www.wikidex.net/wiki/${encodeURIComponent(t.t.replace(/ /g, '_'))}">Fuente: WikiDex ↗</a>`;
+}
+function trainerAfter(c) {
+  if (TRAINERS) return;
+  loadTrainers().then(() => { const el = document.getElementById('tinfo'); if (!el) return; const h = trainerInfoHTML(c); if (h) { el.innerHTML = h; el.style.display = ''; } });
+}
 function viewCard(cardId) {
   const c = q(`SELECT c.*, COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local) name, s.region, s.card_count, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE card_id=?`, [cardId])[0];
   if (!c) { $view.innerHTML = '<p>Carta no encontrada.</p>'; return; }
@@ -962,6 +978,7 @@ function viewCard(cardId) {
           <button class="pill" id="curl" style="font-size:13px">Enlace</button>${CUSTOM_IMG[cardId] ? '<button class="pill" id="cdel" style="font-size:13px">Quitar</button>' : ''}</div></div>
       ${nav.html}
       ${c.dex_id && POKE[c.dex_id] !== null ? `<div class="card col pinfo" id="pinfo">${pokeInfoHTML(c.dex_id, c.name)}</div>` : ''}
+      ${TRAINER_KIND[c.kind] ? `<div class="card col pinfo" id="tinfo" ${trainerInfoHTML(c) ? '' : 'style="display:none"'}>${trainerInfoHTML(c)}</div>` : ''}
       ${sel ? `<div class="card"><table><tr><th>Cardmarket</th><th>Mínimo</th><th>Tendencia</th><th>Media 7 d</th><th>Media 30 d</th></tr>
         <tr><td>${hol ? 'Reverse holo' : 'Precio'}</td><td>${eur(hol ? sel.low_holo : sel.low)}</td><td>${eur(hol ? sel.trend_holo : sel.trend)}</td><td>${eur(hol ? sel.avg7_holo : sel.avg7)}</td><td>${eur(hol ? sel.avg30_holo : sel.avg30)}</td></tr></table>
         <span class="muted" style="font-size:12px;display:block;margin-top:8px">El botón de Cardmarket abre las ofertas de esta carta en ${c.region === 'asia' ? 'japonés' : 'español'} y desde estado ${cmCond()}. El estado mínimo se cambia en Ajustes.</span></div>` : ''}
@@ -1014,6 +1031,7 @@ function viewCard(cardId) {
   };
   draw();
   if (c.dex_id) pokeAfter(c.dex_id, c.name);
+  if (TRAINER_KIND[c.kind]) trainerAfter(c);
 }
 
 /* ---------- lista de deseos (con precio objetivo = alerta) ---------- */
