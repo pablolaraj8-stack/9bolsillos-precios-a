@@ -10,7 +10,7 @@ import argparse, datetime, json, re, sqlite3, time, urllib.parse, urllib.request
 
 API = "https://www.wikidex.net/api.php"
 UA = {"User-Agent": "9Bolsillos/1.0 (app personal de coleccion Pokemon; github.com/pablolaraj8-stack/9bolsillos-precios-a)"}
-VERSION = 1
+VERSION = 2
 # tipo de producto según el nombre del archivo en WikiDex (en español)
 TIPOS = [
     ("etbpc", r"Caja de Entrenador [ÉE]lite.*Pok[ée]mon Center|Pok[ée]mon Center.*Caja de Entrenador"),
@@ -40,9 +40,19 @@ def tipo(nombre):
 
 
 def buscar(nombre_set, pause=1.0):
+    # 1) archivos con el nombre del set en el título
     r = api({"action": "query", "list": "search", "srnamespace": 6, "srsearch": f'intitle:"{nombre_set}"', "srlimit": 50})
     time.sleep(pause)
     files = [x["title"] for x in r.get("query", {}).get("search", [])]
+    # 2) imágenes que salen en la página de la expansión (ahí suelen estar la ETB, las cajas y los blísteres)
+    r = api({"action": "query", "list": "search", "srsearch": f'intitle:"{nombre_set}" TCG', "srlimit": 10})
+    time.sleep(pause)
+    pag = next((x["title"] for x in r.get("query", {}).get("search", []) if "(TCG):" in x["title"] and x["title"].lower().endswith(nombre_set.lower())), None)
+    if pag:
+        im = api({"action": "query", "titles": pag, "prop": "images", "imlimit": 200, "redirects": 1})
+        time.sleep(pause)
+        files += [i["title"] for p in im.get("query", {}).get("pages", []) for i in p.get("images", [])]
+    files = list(dict.fromkeys(files))
     elegidos = []
     for f in files:
         n = re.sub(r"^Archivo:", "", f)
