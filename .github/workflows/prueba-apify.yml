@@ -28,12 +28,12 @@ jobs:
           except Exception as e:
               print('esquema: error', e)
           # 2) prueba con 3 cartas, tope de gasto 0,10 $
-          inp = {'productIds': [886509, 886393, 563557], 'languages': ['Spanish', 'Japanese'], 'minCondition': 'NM', 'maxOffersPerProduct': 3}
+          inp = {'mode': 'offers', 'game': 'pokemon', 'productIds': [886509, 886393, 563557], 'languages': ['Spanish', 'Japanese'], 'minCondition': 'NM', 'maxOffersPerProduct': 3, 'includeProductRows': True}
           try:
               items = call('POST', f'/acts/{ACT}/run-sync-get-dataset-items?maxTotalChargeUsd=0.10&timeout=240', inp, timeout=300)
               print('filas:', len(items))
               for it in items[:20]:
-                  print(json.dumps({k: it[k] for k in list(it)[:28]}, ensure_ascii=False)[:900])
+                  print(json.dumps(it, ensure_ascii=False)[:1200])
           except urllib.error.HTTPError as e:
               print('run: HTTP', e.code, e.read()[:800])
           except Exception as e:
