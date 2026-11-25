@@ -78,8 +78,19 @@ jobs:
       - id: deploy
         uses: actions/deploy-pages@v4
         continue-on-error: true
-      - name: Reintentar la publicación si ha fallado
+      - name: Esperar un poco si la publicación ha fallado (GitHub a veces tarda en ver el paquete)
         if: steps.deploy.outcome == 'failure'
+        run: sleep 60
+      - id: deploy2
+        name: Reintentar la publicación si ha fallado
+        if: steps.deploy.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - name: Esperar otra vez si ha vuelto a fallar
+        if: steps.deploy.outcome == 'failure' && steps.deploy2.outcome == 'failure'
+        run: sleep 120
+      - name: Último intento de publicación
+        if: steps.deploy.outcome == 'failure' && steps.deploy2.outcome == 'failure'
         uses: actions/deploy-pages@v4
 
       - name: Enviar avisos al móvil
