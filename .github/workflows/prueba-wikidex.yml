@@ -1,0 +1,35 @@
+name: prueba-wikidex
+on:
+  push:
+    branches: [prueba-wikidex]
+jobs:
+  prueba:
+    runs-on: ubuntu-latest
+    steps:
+      - shell: python
+        run: |
+          import json, time, urllib.request, urllib.parse
+          API = 'https://www.wikidex.net/api.php'
+          UA = {'User-Agent': '9Bolsillos/1.0 (app personal de coleccion Pokemon; github.com/pablolaraj8-stack/9bolsillos-precios-a)'}
+          def get(params):
+              url = API + '?' + urllib.parse.urlencode(dict(params, format='json', formatversion=2))
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=30) as r:
+                      return r.status, json.loads(r.read())
+              except Exception as e:
+                  return getattr(e, 'code', 'error'), str(e)[:200]
+          titles = ['Mirtilo', 'Mirtilo (TCG)', 'Mirtilo (anime)', 'Órdenes de Jefes (TCG)', 'Investigación de Profesores (TCG)', 'Academia Arándano', 'Torre Pokémon', 'Mesagoza', 'Ciudad Artesa', 'Laboratorio del Profesor (TCG)']
+          st, d = get({'action': 'query', 'meta': 'siteinfo', 'siprop': 'extensions'})
+          print('siteinfo', st, [e.get('name') for e in d['query']['extensions']] if isinstance(d, dict) else d)
+          for t in titles:
+              st, d = get({'action': 'query', 'titles': t, 'prop': 'extracts|pageimages', 'exintro': 1, 'explaintext': 1, 'redirects': 1, 'pithumbsize': 300})
+              if isinstance(d, dict):
+                  p = (d.get('query', {}).get('pages') or [{}])[0]
+                  print(f'\n== {t}: HTTP {st} · existe={not p.get("missing")} · img={p.get("thumbnail", {}).get("source")}')
+                  print('  extracto:', (p.get('extract') or '')[:300].replace('\n', ' '))
+                  if not p.get('extract') and not p.get('missing'):
+                      st2, w = get({'action': 'parse', 'page': t, 'prop': 'wikitext', 'section': 0, 'redirects': 1})
+                      print('  wikitext:', st2, (w.get('parse', {}).get('wikitext', '') if isinstance(w, dict) else w)[:400].replace('\n', ' '))
+              else:
+                  print(f'\n== {t}: HTTP {st} · {d}')
+              time.sleep(1)
