@@ -1562,9 +1562,10 @@ function viewRecvPrice(qs) {
   const rev = P.get('r') === '1', l = (P.get('l') || 'ES').toUpperCase(), c = (P.get('c') || 'NM').toUpperCase();
   const back = '<a href="#/" class="btn" style="align-self:flex-start">Ir a 9Bolsillos</a>';
   if (!cm || !(price > 0)) { $view.innerHTML = `<div class="stack"><h1>No he podido leer el precio</h1><p class="muted">Abre la carta en Cardmarket (desde el botón ↗ de 9B), espera a que se vean las ofertas y vuelve a usar el Atajo.</p>${back}</div>`; return; }
-  const today = todayISO();
-  (COL.real ||= {})[realKey(cm, rev)] = { p: Math.round(price * 100) / 100, d: today, l, c };
-  saveCol();
+  const today = todayISO(), entry = { p: Math.round(price * 100) / 100, d: today, l, c };
+  // No se toca la colección guardada aquí todavía: Safari puede tener una copia antigua. Se apunta como pendiente y
+  // se aplica sobre la versión de tu cuenta (applyPendingReal), así no se pisa nada de lo que hiciste en la app.
+  const pend = JSON.parse(localStorage.getItem('9b.realPending') || '{}'); pend[realKey(cm, rev)] = entry; localStorage.setItem('9b.realPending', JSON.stringify(pend));
   try { history.replaceState(null, '', '#/'); } catch (e) {}   // para que al volver a abrir la app no se guarde otra vez
   const card = q(`SELECT c.card_id, c.set_id, c.local_id, c.image_base, ${NAME} name, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name, s.region FROM card_variants v JOIN cards c USING(card_id) JOIN sets s USING(set_id)
     WHERE v.cm_product_id = ? ORDER BY (s.lang = 'es') DESC LIMIT 1`, [cm])[0];
@@ -1573,9 +1574,34 @@ function viewRecvPrice(qs) {
   $view.innerHTML = `<div class="stack" style="align-items:center;text-align:center;padding-top:20px">
     <div style="font-size:44px">✓</div><h1>Precio guardado</h1>
     ${card ? `<div style="width:150px">${cardImg(card, 'low', 'hero', card.name)}</div><b>${esc(card.name)}</b><span class="muted">${esc(card.set_name)} · ${esc(card.local_id)}</span>` : ord ? `<b>${esc(ord.e.n)}</b><span class="muted">${esc(ord.e.s)} · Mi orden</span>` : `<span class="muted">Producto ${cm} de Cardmarket (no está en tu base de datos todavía)</span>`}
-    <div class="big">${eur(price)}</div><span class="realtag">${esc(realLabel(COL.real[realKey(cm, rev)]))}${rev ? ' · reverse holo' : ''}</span>
+    <div class="big">${eur(price)}</div><span class="realtag">${esc(realLabel(entry))}${rev ? ' · reverse holo' : ''}</span>
     <a href="${link}" class="btn" style="display:flex;align-items:center;justify-content:center">Ver la carta</a>
+    <span id="rsync" class="muted" style="font-size:13px">Guardando en tu cuenta…</span>
     <span class="muted" style="font-size:13px">Se usa en el valor de tu colección, en «Qué comprar» y en los avisos durante ${REAL_DAYS} días.</span></div>`;
+  (async () => {
+    const el = () => document.getElementById('rsync');
+    for (let i = 0; i < 20 && SB && !SB_USER; i++) { try { const ss = await SB.auth.getSession(); if (ss.data.session) SB_USER = ss.data.session.user; } catch (e) {} if (!SB_USER) await new Promise(r => setTimeout(r, 300)); }
+    let r = await applyPendingReal(); if (r === 'none') r = SB && SB_USER ? 'cloud' : 'local';   // ya lo aplicó el arranque
+    if (!el()) return;
+    el().innerHTML = r === 'cloud' ? '<span class="up">✓ Guardado en tu cuenta: ya lo verás en la app</span>'
+      : r === 'local' ? '<b style="color:var(--down)">Aquí (Safari) no tienes la sesión iniciada</b>: se ha guardado solo en Safari. Si usas 9B desde el icono de la pantalla de inicio, entra una vez en <a href="#/settings">Ajustes</a> de Safari con tu cuenta y vuelve a usar el Atajo.'
+      : '<span style="color:var(--down)">No se ha podido subir a tu cuenta. Se queda pendiente y se subirá la próxima vez que abras 9B con conexión.</span>';
+  })();
+}
+// Aplica los precios del Atajo pendientes. Con sesión: sobre la versión más reciente de la nube (sin pisar nada); sin sesión: aquí.
+async function applyPendingReal() {
+  const pend = JSON.parse(localStorage.getItem('9b.realPending') || '{}'), keys = Object.keys(pend);
+  if (!keys.length) return 'none';
+  const put = base => { base.real = base.real || {}; keys.forEach(k => { if (!base.real[k] || (pend[k].d || '') >= (base.real[k].d || '')) base.real[k] = pend[k]; }); };
+  if (!SB || !SB_USER) { put(COL); saveCol(); localStorage.removeItem('9b.realPending'); return 'local'; }
+  try {
+    const { data, error } = await SB.from('collections').select('data').eq('user_id', SB_USER.id).maybeSingle();
+    if (error) throw error;
+    const remote = data && data.data && data.data.cards ? data.data : null;
+    if (remote && (remote.updatedAt || 0) > (COL.updatedAt || 0)) COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, extra: {} }, remote);
+    put(COL); COL.updatedAt = Date.now(); localStorage.setItem(STORE_KEY, JSON.stringify(COL));
+    await pushNow(); localStorage.removeItem('9b.realPending'); return 'cloud';
+  } catch (e) { console.warn('Precio real:', e); return 'error'; }
 }
 function viewMore() {
   const n = k => Object.keys(COL[k] || {}).length;
@@ -1744,6 +1770,7 @@ async function sbInit() {
   SB.auth.onAuthStateChange((_e, session) => { const was = SB_USER && SB_USER.id; SB_USER = session ? session.user : null; if (was !== (SB_USER && SB_USER.id)) redrawSettings(); });
   redrawSettings();
   if (SB_USER) { await syncNow(true); redrawSettings(); }
+  if (await applyPendingReal() === 'cloud' && DB && !location.hash.includes('precio')) route();
 }
 // Trae la versión de la nube; se queda con la más reciente (la de la nube o la de este dispositivo)
 async function syncNow(quiet) {
