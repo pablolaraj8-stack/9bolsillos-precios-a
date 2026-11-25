@@ -28,7 +28,7 @@ jobs:
           except Exception as e:
               print('esquema: error', e)
           # 2) prueba con 3 cartas, tope de gasto 0,10 $
-          inp = {'mode': 'offers', 'game': 'pokemon', 'productIds': [886509, 886393, 563557], 'languages': ['Spanish', 'Japanese'], 'minCondition': 'NM', 'maxOffersPerProduct': 3, 'includeProductRows': True}
+          inp = {'mode': 'offers', 'game': 'pokemon', 'productIds': [886509], 'languages': ['Spanish'], 'minCondition': 'NM', 'maxOffersPerProduct': 1, 'includeProductRows': True}
           try:
               items = call('POST', f'/acts/{ACT}/run-sync-get-dataset-items?maxTotalChargeUsd=0.10&timeout=240', inp, timeout=300)
               print('filas:', len(items))
