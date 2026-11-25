@@ -977,7 +977,7 @@ function viewCard(cardId) {
         <div class="row" style="flex-wrap:wrap;gap:6px;justify-content:center"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG[cardId] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="cimg" accept="image/*" hidden></label>
           <button class="pill" id="curl" style="font-size:13px">Enlace</button>${CUSTOM_IMG[cardId] ? '<button class="pill" id="cdel" style="font-size:13px">Quitar</button>' : ''}</div></div>
       ${nav.html}
-      ${c.dex_id && POKE[c.dex_id] !== null ? `<div class="card col pinfo" id="pinfo">${pokeInfoHTML(c.dex_id, c.name)}</div>` : ''}
+      ${c.dex_id && (!c.kind || c.kind === 'Pokemon') && POKE[c.dex_id] !== null ? `<div class="card col pinfo" id="pinfo">${pokeInfoHTML(c.dex_id, c.name)}</div>` : ''}
       ${TRAINER_KIND[c.kind] ? `<div class="card col pinfo" id="tinfo" ${trainerInfoHTML(c) ? '' : 'style="display:none"'}>${trainerInfoHTML(c)}</div>` : ''}
       ${sel ? `<div class="card"><table><tr><th>Cardmarket</th><th>Mínimo</th><th>Tendencia</th><th>Media 7 d</th><th>Media 30 d</th></tr>
         <tr><td>${hol ? 'Reverse holo' : 'Precio'}</td><td>${eur(hol ? sel.low_holo : sel.low)}</td><td>${eur(hol ? sel.trend_holo : sel.trend)}</td><td>${eur(hol ? sel.avg7_holo : sel.avg7)}</td><td>${eur(hol ? sel.avg30_holo : sel.avg30)}</td></tr></table>
@@ -1030,7 +1030,7 @@ function viewCard(cardId) {
     const us = document.getElementById('unsell'); if (us) us.onclick = () => { delete COL.sell[cardId]; saveCol(); draw(); };
   };
   draw();
-  if (c.dex_id) pokeAfter(c.dex_id, c.name);
+  if (c.dex_id && (!c.kind || c.kind === 'Pokemon')) pokeAfter(c.dex_id, c.name);
   if (TRAINER_KIND[c.kind]) trainerAfter(c);
 }
 

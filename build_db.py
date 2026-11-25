@@ -239,11 +239,13 @@ def main():
             known_en[re.sub(r"[^a-z0-9]", "", sp["name"])] = int(sp["url"].rstrip("/").split("/")[-1]) if sp.get("url") else i
     except Exception as e:
         print("PokéAPI no disponible:", e)
+    db.execute("UPDATE cards SET dex_id = NULL WHERE kind IS NOT NULL AND kind != 'Pokemon'")   # TCGdex a veces pone nº a entrenadores antiguos
     for cid, en, ja, dex in db.execute("SELECT card_id, name_en, name_ja, dex_id FROM cards WHERE dex_id IS NOT NULL"):
         if en: known_en.setdefault(dex_key(en), dex)
         if ja: known_ja.setdefault(ja_key(ja), dex)
     fills = []
-    for cid, en, ja in db.execute("SELECT card_id, name_en, name_ja FROM cards WHERE dex_id IS NULL").fetchall():
+    # Solo cartas de Pokémon: un Partidario como «Cintia» o «Team Rocket» no es un Pokémon aunque se parezca a otro nombre
+    for cid, en, ja in db.execute("SELECT card_id, name_en, name_ja FROM cards WHERE dex_id IS NULL AND (kind = 'Pokemon' OR kind IS NULL)").fetchall():
         d = (en and known_en.get(dex_key(en))) or (ja and known_ja.get(ja_key(ja)))
         if d: fills.append((d, cid))
     db.executemany("UPDATE cards SET dex_id=? WHERE card_id=?", fills)

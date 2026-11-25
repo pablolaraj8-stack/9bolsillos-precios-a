@@ -6,11 +6,13 @@ Usa la API pública de WikiDex (MediaWiki), despacio (1 petición por segundo) y
 cada día solo se piden los nombres nuevos y, una vez al mes, los que no se encontraron.
 Licencia del texto: CC BY-NC-SA (WikiDex); la app enlaza siempre a la página original.
 """
-import argparse, datetime, json, re, sqlite3, time, urllib.parse, urllib.request
+import argparse, datetime, json, re, sqlite3, time, unicodedata, urllib.parse, urllib.request
 
 API = "https://www.wikidex.net/api.php"
 UA = {"User-Agent": "9Bolsillos/1.0 (app personal de coleccion Pokemon; github.com/pablolaraj8-stack/9bolsillos-precios-a)"}
-PERSONA = re.compile(r"personaje|líder|alto mando|campe[oó]n|profesor|entrenador|regi[oó]n|organizaci[oó]n|equipo|team", re.I)
+PERSONA = re.compile(r"personaje|líder|alto mando|campe[oó]n|profesor|investigador|entrenador|rival|protagonista|ejecutiv|organizaci[oó]n|kahuna|capit[aá]n|jefe|clase de entrenador", re.I)
+VERSION = 2   # súbelo si cambian las reglas: se vuelve a pedir todo
+fold = lambda t: re.sub(r"[^a-z0-9 ]", "", unicodedata.normalize("NFD", t.lower()).encode("ascii", "ignore").decode())
 LUGAR = re.compile(r"situad|ubicad|regi[oó]n|ciudad|pueblo|lugar|edificio|torre|estadio|isla|zona|bosque|monte|gimnasio|cueva|ruta|templo|academia|santuario|ruinas|lago|playa|mar", re.I)
 
 
@@ -50,7 +52,8 @@ def fetch_pages(titles, fetch=None, pause=1.0):
                 tt = alias[tt]
             p = pages.get(tt)
             if p and not p.get("missing") and "disambiguation" not in (p.get("pageprops") or {}) and p.get("extract"):
-                out[t] = {"title": p["title"], "extract": p["extract"]}
+                if set(fold(t).split()) & set(fold(p["title"]).split()):   # una redirección a algo sin relación no vale
+                    out[t] = {"title": p["title"], "extract": p["extract"]}
         if pause:
             time.sleep(pause)
     return out
@@ -72,7 +75,9 @@ def region_of(txt):
 def build(names, prev, fetch=None, pause=1.0, today=None):
     today = today or datetime.date.today().isoformat()
     month_ago = (datetime.date.fromisoformat(today) - datetime.timedelta(days=30)).isoformat()
-    out, todo = {}, {}
+    out, todo = {"_v": VERSION}, {}
+    if prev.get("_v") != VERSION:
+        prev = {}
     for name, kind in names.items():
         p = prev.get(name)
         if p and (not p.get("miss") or p["miss"] > month_ago):
@@ -90,10 +95,9 @@ def build(names, prev, fetch=None, pause=1.0, today=None):
             x = pg["extract"]
             if "carta de Entrenador" in x[:200]:   # la página es la de la propia carta, no la del personaje
                 continue
-            ok = PERSONA.search(x[:300]) if kind == "Supporter" else (LUGAR.search(x[:300]) or PERSONA.search(x[:300]))
-            if loose and not ok:
-                continue
-            if not loose and not ok and kind == "Stadium":
+            region = re.search(r"\bes una regi[oó]n", x[:150])
+            ok = (PERSONA.search(x[:300]) or region) if kind == "Supporter" else (LUGAR.search(x[:300]) or PERSONA.search(x[:300]))
+            if not ok:
                 continue
             is_place = kind == "Stadium" and not re.search(r"personaje", x[:200], re.I) or bool(re.search(r"\bes (una|un) (regi[oó]n|ciudad|isla|zona|pueblo|lugar)", x[:150]))
             txt = summarize(x)
@@ -122,9 +126,9 @@ def main():
         res = build(names, prev)
     except Exception as e:   # si WikiDex no responde, se conserva lo de ayer
         print("WikiDex no ha respondido:", e)
-        res = {n: prev[n] for n in names if n in prev}
+        res = dict({n: prev[n] for n in names if n in prev}, _v=prev.get("_v"))
     json.dump(res, open(a.out, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
-    found = sum(1 for v in res.values() if not v.get("miss"))
+    found = sum(1 for k, v in res.items() if k != "_v" and not v.get("miss"))
     print(f"Partidarios y estadios: {len(names)} · con descripción: {found}")
 
 
