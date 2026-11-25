@@ -270,6 +270,7 @@ function viewHome() {
   const periods = [[7, '1S'], [30, '1M'], [90, '3M'], [365, '1A'], [0, 'Todo']];
   $view.innerHTML = `<div class="stack">
     <div class="between"><div class="row" style="gap:10px"><img src="icon-192.png" alt="" width="36" height="36" style="border-radius:9px"><h1>9Bolsillos</h1></div><a class="pill" style="display:flex;align-items:center" href="#/settings">Ajustes</a></div>
+    ${calBanner()}
     ${alertsHit ? `<a class="alertbox" href="#/wish" style="color:var(--tx)"><b class="up">${alertsHit} alerta${alertsHit > 1 ? 's' : ''} de precio</b> ${alertsHit > 1 ? 'han saltado' : 'ha saltado'}. Ver →</a>` : ''}
     <div class="col"><span class="muted">Valor de tu colección · precios del ${PRICE_DATE.split('-').reverse().join('/')}</span>
       <div class="big">${eur(total)}</div>${change}
@@ -1498,9 +1499,47 @@ function wireDup() {
   };
 }
 
+/* ---------- Calendario de lanzamientos: lo anunciado (app/calendario.js) + lo que ya trae la base de datos ---------- */
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const todayISO = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+const daysTo = f => Math.round((new Date(f + 'T00:00:00') - new Date(todayISO() + 'T00:00:00')) / 864e5);
+const cdText = n => n === 0 ? '¡Sale hoy!' : n === 1 ? 'Sale mañana' : n > 1 ? `Faltan ${n} días` : n === -1 ? 'Salió ayer' : `Salió hace ${-n} días`;
+function calEntries() {
+  const hoy = todayISO(), desde = new Date(Date.now() - 75 * 864e5).toISOString().slice(0, 10);
+  const db = q(`SELECT set_id, lang, release_date, COALESCE(name_es,name_en,name_ja,name_local) name, name_ja, name_en FROM sets WHERE lang IN ('es','ja') AND release_date >= ? ORDER BY release_date`, [desde])
+    .filter(s => !/デッキ|Deck|スターター|ボックス|Box|Starter|Kit/i.test((s.name || '') + ' ' + (s.name_en || '')));
+  const out = db.map(s => ({ id: 'set:' + s.set_id, fecha: s.release_date, idioma: s.lang, nombre: s.lang === 'ja' && s.name_en && s.name_ja ? `${s.name_ja} · ${s.name_en}` : s.name, set: s.set_id, tipo: 'Set' }));
+  const seen = new Set(out.map(e => e.set).concat(out.map(e => e.idioma + e.fecha)));
+  (window.CALENDARIO || []).forEach(c => { if (c.set && seen.has(c.set)) return; if (!c.set && seen.has(c.idioma + c.fecha)) return; if (c.fecha >= desde) out.push(c); });
+  return out.sort((a, b) => a.fecha < b.fecha ? -1 : 1).map(e => ({ ...e, dias: daysTo(e.fecha), pasado: e.fecha < hoy }));
+}
+const calAviso = id => ((COL.cal || []).includes(id));
+function viewCalendar() {
+  const E = calEntries(), next = E.filter(e => !e.pasado), past = E.filter(e => e.pasado).reverse(), N = next[0];
+  const day = e => { const [y, m, d] = e.fecha.split('-'); return `<div class="calday"><b>${+d}</b><span>${MESES[+m - 1]} ${y.slice(2)}</span></div>`; };
+  const row = e => `<div class="item calrow">${day(e)}<a ${e.set ? `href="#/set/${encodeURIComponent(e.set)}"` : e.fuente ? `href="${esc(e.fuente)}" target="_blank" rel="noopener"` : ''} class="col" style="flex:1;min-width:0;color:var(--tx)">
+      <b>${esc(e.nombre)}</b>
+      <span class="muted"><span class="lang">${e.idioma === 'ja' ? 'JP' : 'ES'}</span> ${esc(cdText(e.dias))}${e.codigo ? ' · ' + esc(e.codigo) : ''}${e.nota ? ' · ' + esc(e.nota) : ''}</span></a>
+      ${!e.pasado ? `<button class="pill ${calAviso(e.id) ? 'on' : ''}" data-cal="${esc(e.id)}" aria-pressed="${calAviso(e.id)}" aria-label="Avisarme el día que salga">${calAviso(e.id) ? '🔔' : '🔕'}</button>` : ''}</div>`;
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1>Lanzamientos</h1></div>
+    ${N ? `<div class="calnext"><span style="opacity:.8">Próximo lanzamiento · ${N.idioma === 'ja' ? 'Japón' : 'España'}</span><b style="font-size:22px">${esc(N.nombre)}</b>
+      <span class="cd">${N.dias === 0 ? '¡Hoy!' : N.dias === 1 ? 'Mañana' : N.dias + ' días'}</span><span style="opacity:.8">${+N.fecha.slice(8)} de ${MESES[+N.fecha.slice(5, 7) - 1]} de ${N.fecha.slice(0, 4)}${N.nota ? ' · ' + esc(N.nota) : ''}</span></div>` : ''}
+    <h2>Próximos</h2><div class="list">${next.map(row).join('') || '<p class="muted">No hay ningún lanzamiento anunciado todavía.</p>'}</div>
+    <span class="muted">🔔 te manda un aviso al móvil la mañana en que sale (necesitas los avisos activados en Ajustes).</span>
+    ${past.length ? `<h2>Recién salidos</h2><div class="list">${past.map(row).join('')}</div>` : ''}
+    <p class="muted">Los sets entran solos en la app cuando se añaden a la base de datos. Los anunciados que aún no están, los apunto a mano: pídemelo cuando anuncien uno nuevo.</p></div>`;
+  $view.querySelectorAll('[data-cal]').forEach(b => b.onclick = () => { const id = b.dataset.cal; COL.cal = COL.cal || []; const i = COL.cal.indexOf(id);
+    if (i >= 0) COL.cal.splice(i, 1); else COL.cal.push(id); saveCol(); toast(i >= 0 ? 'Aviso quitado' : 'Te avisaré el día que salga'); viewCalendar(); });
+}
+function calBanner() {
+  const N = calEntries().find(e => !e.pasado && e.dias <= 21);
+  return N ? `<a class="card row" href="#/calendario" style="gap:12px;align-items:center;color:var(--tx)"><span style="font-size:26px">📅</span><div class="col" style="flex:1"><b>${esc(N.nombre)}</b><span class="muted">${N.idioma === 'ja' ? 'Japón' : 'España'} · ${esc(cdText(N.dias))}</span></div>→</a>` : '';
+}
+
 function viewMore() {
   const n = k => Object.keys(COL[k] || {}).length;
   $view.innerHTML = `<div class="stack"><h1>Más</h1><div class="list">
+    <a class="item" href="#/calendario"><div class="col" style="flex:1"><b>Lanzamientos</b><span class="muted">Próximos sets en español y japonés, con cuenta atrás</span></div>→</a>
     <a class="item" href="#/stats"><div class="col" style="flex:1"><b>Tu colección en números</b><span class="muted">Tu ilustrador, tu Pokémon y tu año favoritos, tu carta más cara…</span></div>→</a>
     <a class="item" href="#/show"><div class="col" style="flex:1"><b>Enseñar colección</b><span class="muted">Tus archivadores a pantalla completa, sin precios</span></div>→</a>
     <a class="item" href="#/buy"><div class="col" style="flex:1"><b>Qué comprar este mes</b><span class="muted">Reparte tu presupuesto entre lo que te falta</span></div>→</a>
@@ -1803,7 +1842,7 @@ function route() {
   if (!DB) return;
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   const [, a, b] = h.split('/');
-  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', scan: 'search', dex: 'sets', stats: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more' }[a || ''] || 'home';
+  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', scan: 'search', dex: 'sets', stats: 'more', calendario: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more' }[a || ''] || 'home';
   $tabs.querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
   window.scrollTo(0, 0);
   if (a !== 'show' || !b) document.body.classList.remove('showmode');
@@ -1826,6 +1865,7 @@ function route() {
     else if (a === 'scan') viewScan();
     else if (a === 'dex') viewDex(+b);
     else if (a === 'stats') viewStats();
+    else if (a === 'calendario') viewCalendar();
     else if (a === 'show') viewShow(b ? decodeURIComponent(b) : '');
     else if (a === 'more') viewMore();
     else if (a === 'settings') viewSettings();

@@ -122,7 +122,48 @@ def main():
         if delivered and not a.dry:
             api('POST', 'push_log', [{'user_id': uid, 'alert_key': k, 'last_price': b, 'notified_at': now} for k, _, _, _, b in hits],
                 prefer='resolution=merge-duplicates')
+    sent += release_day(a, db, subs, users, webpush, WebPushException, claims, now)
     print(f'Avisos: {sent} notificaciones enviadas.')
+
+
+def release_day(a, db, subs, users, webpush, WebPushException, claims, now):
+    """«Hoy sale X»: para los lanzamientos que cada usuario ha marcado con 🔔 en el calendario."""
+    import re
+    from zoneinfo import ZoneInfo
+    hoy = datetime.now(ZoneInfo('Europe/Madrid')).date().isoformat()
+    sale = {}
+    try:
+        txt = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app', 'calendario.js'), encoding='utf-8').read()
+        for c in json.loads(re.search(r'=\s*(\[.*\])\s*;?\s*$', txt, re.S).group(1)):
+            if c.get('fecha') == hoy:
+                sale[c['id']] = c['nombre']
+    except Exception as e:
+        print('Calendario: no se ha podido leer', e)
+    for sid, name in db.execute("SELECT set_id, COALESCE(name_es, name_en, name_local) FROM sets WHERE release_date = ? AND lang IN ('es','ja')", (hoy,)):
+        sale['set:' + sid] = name
+    if not sale:
+        return 0
+    cols = api('GET', 'collections?select=user_id,cal:data->cal&user_id=in.(' + ','.join(users) + ')') or []
+    done = {(l['user_id'], l['alert_key']) for l in api('GET', 'push_log?select=user_id,alert_key&alert_key=like.cal:*') or []}
+    sent = 0
+    for col in cols:
+        uid = col['user_id']
+        for cid in [c for c in (col.get('cal') or []) if c in sale and (uid, 'cal:' + c) not in done]:
+            payload = json.dumps({'title': '📅 ¡Hoy sale ' + sale[cid] + '!', 'body': 'Ya está a la venta. Ábrelo en 9Bolsillos para ver sus cartas.',
+                                  'url': a.site.rstrip('/') + '/#/calendario', 'tag': '9b-cal-' + cid})
+            ok = False
+            for s in [s for s in subs if s['user_id'] == uid]:
+                if a.dry:
+                    print('DRY', uid[:8], sale[cid]); ok = True
+                    continue
+                try:
+                    webpush(subscription_info=s['sub'], data=payload, vapid_private_key=os.environ['VAPID_PRIVATE_KEY'], vapid_claims=dict(claims), ttl=12 * 3600)
+                    ok = True; sent += 1
+                except WebPushException as e:
+                    print('Avisos: error enviando:', getattr(e.response, 'status_code', None), str(e)[:200])
+            if ok and not a.dry:
+                api('POST', 'push_log', [{'user_id': uid, 'alert_key': 'cal:' + cid, 'last_price': 0, 'notified_at': now}], prefer='resolution=merge-duplicates')
+    return sent
 
 
 if __name__ == '__main__':
