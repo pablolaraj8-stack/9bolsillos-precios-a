@@ -35,6 +35,12 @@ jobs:
               for it in items[:20]:
                   print(json.dumps(it, ensure_ascii=False)[:1200])
           except urllib.error.HTTPError as e:
-              print('run: HTTP', e.code, e.read()[:800])
+              body = e.read().decode()
+              print('run: HTTP', e.code, body[:300])
+              import re
+              m = re.search(r'run ID: (\w+)', body)
+              if m:
+                  req = urllib.request.Request('https://api.apify.com/v2/actor-runs/' + m.group(1) + '/log', headers={'Authorization': 'Bearer ' + tok})
+                  print(urllib.request.urlopen(req, timeout=60).read().decode()[-3000:])
           except Exception as e:
               print('run: error', e)
