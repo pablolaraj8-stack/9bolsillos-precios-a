@@ -806,8 +806,8 @@ function cardNav(hash, setOrder, setLabel) {
     ${next ? `<a class="pill" href="${next}" data-nav="next" aria-label="Carta siguiente">Siguiente ›</a>` : '<span></span>'}</div>` };
 }
 function pokeAfter(dex, nm) {
-  const fill = () => { const el = document.getElementById('pinfo'); if (!el) return; const h = pokeInfoHTML(dex, nm); if (h) el.innerHTML = h; else el.remove(); };
-  if (POKE[dex] === undefined) loadPoke(dex).then(fill); else fill();
+  const fill = () => { const el = document.getElementById('pinfo'); if (!el) return; const h = pokeInfoHTML(dex, nm); if (h) { el.innerHTML = h; wirePoke(dex, nm); } else el.remove(); };
+  if (POKE[dex] === undefined || (POKE[dex] && !POKE[dex].evo)) { if (POKE[dex]) fill(); loadPoke(dex).then(fill); } else fill();
 }
 /* ---------- avisos en bloque: todo lo que te falta de un set o de "Mi orden", con un % de bajada ---------- */
 function bulkAlertButton(tag) {
@@ -837,18 +837,60 @@ async function loadPoke(dex) {
     POKE[dex] = { gen: ((sp.genera.find(g => g.language.name === 'es') || sp.genera.find(g => g.language.name === 'en') || {}).genus) || '',
       txt: ((fl[fl.length - 1] || fe[fe.length - 1] || {}).flavor_text || '').replace(/[\f\n\r]+/g, ' ').replace(/\s+/g, ' ').trim(),
       types: pk.types.map(t => TIPOS[t.type.name] || t.type.name), h: pk.height / 10, w: pk.weight / 10,
-      gn: (sp.generation && sp.generation.name || '').replace('generation-', '').toUpperCase(), leg: sp.is_legendary, myth: sp.is_mythical };
+      gn: (sp.generation && sp.generation.name || '').replace('generation-', '').toUpperCase(), leg: sp.is_legendary, myth: sp.is_mythical, en: sp.name, evo: [] };
+    try {   // cadena evolutiva: una lista por fase, con el nº y el nombre inglés de cada Pokémon
+      const ch = await fetch(sp.evolution_chain.url).then(r => r.json()), st = [];
+      const walk = (n, d) => { (st[d] ||= []).push({ id: +n.species.url.split('/').slice(-2)[0], en: n.species.name }); n.evolves_to.forEach(x => walk(x, d + 1)); };
+      walk(ch.chain, 0); POKE[dex].evo = st;
+    } catch (e) {}
     try { localStorage.setItem('poke_cache', JSON.stringify(POKE)); } catch (e) {}
   } catch (e) { POKE[dex] = null; }
 }
+const SPR = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/';
+// Sprite animado (Showdown); si no hay, el animado de Negro/Blanco y si no, el dibujo de HOME
+const spriteList = (id, shiny) => { const sh = shiny ? 'shiny/' : ''; return [`${SPR}other/showdown/${sh}${id}.gif`, `${SPR}versions/generation-v/black-white/animated/${sh}${id}.gif`, `${SPR}other/home/${sh}${id}.png`]; };
+const spriteTag = (id, shiny, cls, alt) => { const l = spriteList(id, shiny); return `<img class="${cls}" alt="${esc(alt)}" src="${l[0]}" data-fb="${l.slice(1).join(' ')}" onerror="const f=(this.dataset.fb||'').split(' ').filter(Boolean);if(f.length){this.dataset.fb=f.slice(1).join(' ');this.src=f[0]}else this.remove()">`; };
+function dexName(id, en) {   // en España los nombres de los Pokémon son los ingleses: se busca la forma bonita en la base de datos
+  if (!en) en = (POKE[id] && POKE[id].en) || '';
+  const norm = t => (t || '').toLowerCase().replace(/[.'’]/g, '').replace(/[\s_]+/g, '-').replace(/♀/g, '-f').replace(/♂/g, '-m').replace(/--+/g, '-');
+  const names = q(`SELECT name_en, count(*) n FROM cards WHERE dex_id = ? AND name_en IS NOT NULL GROUP BY name_en ORDER BY n DESC`, [id]).map(r => r.name_en);
+  if (en) { const hit = names.find(n => norm(n) === norm(en)); if (hit) return hit; return en.replace(/(^|-)\w/g, m => m.toUpperCase()).replace(/-/g, ' '); }
+  return names.find(n => !/\s(ex|EX|V|VMAX|VSTAR|GX|BREAK)$/.test(n) && !/^(Galarian|Alolan|Hisuian|Paldean|Dark|Light|Shining|Radiant)\s/.test(n)) || names[0] || '';
+}
+let SHINY = false;
 function pokeInfoHTML(dex, name) {
   const p = POKE[dex];
   if (p === undefined) return `<span class="muted">Cargando información de ${esc(name)}…</span>`;
   if (!p) return '';
   const n = String(dex).padStart(4, '0');
+  // Comparador de tamaño: tú (1,70 m) al lado del Pokémon, a la misma escala
+  const H = 1.7, top = Math.max(p.h, H), px = 130, ph = Math.max(6, p.h / top * px), yh = H / top * px;
+  const person = `<svg viewBox="0 0 40 100" style="height:${yh}px;width:auto" aria-hidden="true"><circle cx="20" cy="11" r="9" fill="currentColor"/><path d="M8 24 Q20 19 32 24 L35 58 L29 58 L28 40 L27 98 L21 98 L20 64 L19 98 L13 98 L12 40 L11 58 L5 58 Z" fill="currentColor"/></svg>`;
+  const evo = (p.evo || []).filter(x => x.length);
   return `<div class="between"><b>Nº ${n}${p.gen ? ' · ' + esc(p.gen) : ''}</b><span class="row" style="gap:6px">${p.types.map(t => `<span class="tchip">${esc(t)}</span>`).join('')}</span></div>
+    <div class="psprite">${spriteTag(dex, SHINY, 'anim', name)}<button class="pill" id="shiny" aria-pressed="${SHINY}" style="font-size:12px">${SHINY ? '✨ Shiny' : '✨ Ver shiny'}</button></div>
     ${p.txt ? `<p style="margin:0;line-height:1.45">${esc(p.txt)}</p>` : ''}
-    <span class="muted">${p.h.toLocaleString('es-ES')} m · ${p.w.toLocaleString('es-ES')} kg${p.gn ? ' · Generación ' + esc(p.gn) : ''}${p.leg ? ' · Legendario' : p.myth ? ' · Singular' : ''}</span>`;
+    <span class="muted">${p.h.toLocaleString('es-ES')} m · ${p.w.toLocaleString('es-ES')} kg${p.gn ? ' · Generación ' + esc(p.gn) : ''}${p.leg ? ' · Legendario' : p.myth ? ' · Singular' : ''}</span>
+    <div class="sizecmp" aria-label="Comparación de tamaño">
+      <div class="col" style="align-items:center"><div class="sz" style="height:${px}px;color:var(--tx3, #6b7280)">${person}</div><span class="muted">Tú · 1,70 m</span></div>
+      <div class="col" style="align-items:center"><div class="sz" style="height:${px}px"><img alt="${esc(name)}" src="${SPR}other/official-artwork/${SHINY ? 'shiny/' : ''}${dex}.png" style="height:${ph}px;width:auto;max-width:${Math.max(ph, 40) * 1.4}px;object-fit:contain" onerror="this.remove()"></div><span class="muted">${esc(dexName(dex, p.en) || name)} · ${p.h.toLocaleString('es-ES')} m</span></div></div>
+    ${evo.length > 1 ? `<div class="col" style="gap:6px"><b style="font-size:14px">Cadena evolutiva</b><div class="evo">${evo.map(st => `<div class="evost">${st.map(x => `<a href="#/dex/${x.id}" class="evomon ${x.id === dex ? 'on' : ''}">${spriteTag(x.id, false, 'mini', x.en).replace(/other\/showdown\/|versions\/generation-v\/black-white\/animated\//g, '').replace(/\.gif/g, '.png')}<span>${esc(dexName(x.id, x.en))}</span></a>`).join('')}</div>`).join('<span class="evoarr">›</span>')}</div></div>` : ''}`;
+}
+function wirePoke(dex, name) {
+  const b = document.getElementById('shiny'); if (b) b.onclick = () => { SHINY = !SHINY; const el = document.getElementById('pinfo'); if (el) { el.innerHTML = pokeInfoHTML(dex, name); wirePoke(dex, name); } };
+}
+// Todas las cartas de un Pokémon (desde la cadena evolutiva)
+let dexLang = 'es';
+function viewDex(id) {
+  const nm = dexName(id, ''), rows = q(`SELECT c.card_id, c.set_id, c.local_id, ${NAME} name, c.image_base, s.lang, s.release_date, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name, c.illustrator
+    FROM cards c JOIN sets s USING(set_id) WHERE c.dex_id = ? AND s.lang = ? ORDER BY s.release_date, CAST(c.local_id AS INTEGER)`, [id, dexLang]);
+  const vm = variantsOf(rows.map(r => r.card_id)), have = rows.filter(r => COL.cards[r.card_id]).length;
+  LIST_CTX = rows.map(r => '#/card/' + encodeURIComponent(r.card_id));
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="javascript:history.back()" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a>
+      <div style="width:64px;height:64px;display:flex;align-items:center;justify-content:center">${spriteTag(id, false, 'anim', nm)}</div><div class="col" style="flex:1"><h1>${esc(nm || 'Nº ' + id)}</h1><span class="muted">Nº ${String(id).padStart(4, '0')} · tienes ${have} de ${rows.length} cartas</span></div></div>
+    <div class="tbrow">${seg('dl', [['es', 'Español'], ['ja', 'Japonés']], dexLang)}<span></span></div>
+    <div class="list">${rows.map(r => `<a class="item" href="#/card/${encodeURIComponent(r.card_id)}">${img(r.image_base, 'thumb', '', r.card_id)}<div class="col" style="flex:1;min-width:0"><b>${esc(r.name)} ${COL.cards[r.card_id] ? '<span class="up">✓</span>' : ''}</b><span class="muted">${esc(r.set_name)} · ${esc(r.local_id)} · ${esc((r.release_date || '').slice(0, 4))}${r.illustrator ? ' · ' + esc(r.illustrator) : ''}</span></div><b>${eur(cheapest(vm[r.card_id]))}</b></a>`).join('') || '<p class="muted">No hay cartas de este Pokémon en este idioma.</p>'}</div></div>`;
+  $view.querySelectorAll('[data-dl]').forEach(b => b.onclick = () => { dexLang = b.dataset.dl; viewDex(id); });
 }
 
 /* ---------- gestos en la ficha de una carta: deslizar hacia abajo para volver, a los lados para cambiar de carta ---------- */
@@ -1584,7 +1626,7 @@ function route() {
   if (!DB) return;
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   const [, a, b] = h.split('/');
-  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', scan: 'search', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more' }[a || ''] || 'home';
+  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', scan: 'search', dex: 'sets', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more' }[a || ''] || 'home';
   $tabs.querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
   window.scrollTo(0, 0);
   if (a === 'card' || a === 'ocard') { if (LIST_CTX && LIST_CTX.includes(location.hash)) NAV_CTX = LIST_CTX; else if (!(NAV_CTX && NAV_CTX.includes(location.hash))) NAV_CTX = null; } else LIST_CTX = null;
@@ -1604,6 +1646,7 @@ function route() {
     else if (a === 'sell') viewSell();
     else if (a === 'buy') viewBuy();
     else if (a === 'scan') viewScan();
+    else if (a === 'dex') viewDex(+b);
     else if (a === 'more') viewMore();
     else if (a === 'settings') viewSettings();
     else viewHome();

@@ -41,7 +41,12 @@ h2{font-size:17px;margin:0}
 .grabber{width:44px;height:5px;border-radius:3px;background:var(--line);margin:-4px auto 2px}
 .cardnav{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .cardnav .pill{display:flex;align-items:center;font-size:14px;text-decoration:none}
-.pinfo{gap:8px}.tchip{font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--bg3);color:var(--tx2)}
+.pinfo{gap:8px}.psprite{display:flex;flex-direction:column;align-items:center;gap:6px;padding:6px 0}
+.anim{height:96px;width:auto;max-width:160px;object-fit:contain;image-rendering:pixelated}
+.sizecmp{display:flex;justify-content:center;align-items:flex-end;gap:28px;padding:10px 0 2px;border-top:1px solid var(--bg3)}.sz{display:flex;align-items:flex-end;justify-content:center}
+.evo{display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap}.evost{display:flex;flex-direction:column;gap:4px}
+.evomon{display:flex;flex-direction:column;align-items:center;font-size:12px;color:var(--tx2);padding:4px 6px;border-radius:12px;min-width:64px}
+.evomon.on{background:var(--bg3);color:var(--tx);font-weight:700}.mini{width:56px;height:56px;image-rendering:pixelated;object-fit:contain}.evoarr{color:var(--tx2);font-size:20px}.tchip{font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--bg3);color:var(--tx2)}
 @media (hover:hover){.grabber{display:none}}
 .pills{display:flex;gap:6px;flex-wrap:wrap}
 .pill{min-height:40px;padding:0 14px;border:none;border-radius:10px;background:var(--bg3);color:var(--tx2);font-weight:600;cursor:pointer}
