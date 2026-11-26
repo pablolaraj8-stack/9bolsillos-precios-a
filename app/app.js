@@ -353,7 +353,7 @@ function viewHome() {
   const nameIds = [...new Set(movers.map(m => m.id).concat(top.map(t => t.id)))];
   if (nameIds.length) q(`SELECT c.card_id, COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local) name, c.local_id, c.image_base, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${nameIds.map(() => '?').join(',')})`, nameIds).forEach(r => names[r.card_id] = r);
 
-  const alertsHit = alertStatus().filter(a => a.hit).length;
+  const alertsHit = alertStatus().filter(a => a.hit && !alertSeen(a)).length;   // las que ya has visto en Deseos no vuelven a avisar (salvo que bajen más)
   const periods = [[7, '1S'], [30, '1M'], [90, '3M'], [365, '1A'], [0, 'Todo']];
   $view.innerHTML = `<div class="stack">
     <div class="between"><div class="row" style="gap:10px"><img src="icon-192.png" alt="" width="34" height="34" style="border-radius:9px"><h1>9Bolsillos</h1></div><a class="iconbtn" href="#/settings" aria-label="Ajustes">${ico('gear', 20)}</a></div>
@@ -1230,8 +1230,18 @@ function alertStatus() {
     return Object.assign(a, { now, low, ratio, hit: !!a.target && now != null && now <= a.target, lowHit: !!a.target && low != null && low <= a.target, info: info[a.card] || { name: (a.name || 'Carta').split(' · ')[0], local_id: '', set_name: (a.name || '').split(' · ').slice(1).join(' · '), image_base: null, img: a.img } });
   }).sort((x, y) => (x.ratio == null) - (y.ratio == null) || (x.ratio ?? 0) - (y.ratio ?? 0) || (x.now ?? 1e9) - (y.now ?? 1e9));
 }
+/* Alertas vistas: al abrir Deseos se dan por vistas y se quitan el aviso de la portada y las notificaciones del móvil */
+function seenAlerts() { try { return JSON.parse(localStorage.getItem('9b.alertSeen') || '{}'); } catch (e) { return {}; } }
+function alertSeen(a) { const p = seenAlerts()[a.key]; return p != null && a.now != null && a.now >= p - 0.005; }
+function markAlertsSeen(list) {
+  const s = {}; list.filter(a => a.hit && a.now != null).forEach(a => { s[a.key] = a.now; });
+  try { localStorage.setItem('9b.alertSeen', JSON.stringify(s)); } catch (e) {}
+  try { if (navigator.clearAppBadge) navigator.clearAppBadge(); } catch (e) {}
+  if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistration().then(r => r && r.getNotifications ? r.getNotifications() : []).then(ns => ns.forEach(n => { const u = (n.data && n.data.url) || ''; if (!u || /#\/(wish|alerts)/.test(u)) n.close(); })).catch(() => {});
+}
 function viewWishlist() {
   const list = alertStatus();
+  markAlertsSeen(list);
   const total = list.reduce((t, a) => t + (a.now || 0), 0);
   const hits = list.filter(a => a.hit), hitsCost = hits.reduce((t, a) => t + (a.now || 0), 0);
   const lowTotal = list.reduce((t, a) => t + (a.low ?? a.now ?? 0), 0);
