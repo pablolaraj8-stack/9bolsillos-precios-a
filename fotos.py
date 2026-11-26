@@ -16,13 +16,14 @@ CH_MANUAL = {"SV-P": "svp_ja", "M-P": "mp_ja", "S-P": "swshp_ja", "SM-P": "smp_j
              "DP-P": "dpp_ja", "DPt-P": "ptp_ja", "L-P": "lp_ja", "ADV-P": "advp_ja", "PCG-P": "pcgp_ja"}
 
 
-def get(url, tries=3):
+def get(url, tries=4):
     for i in range(tries):
         try:
             return json.load(urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=40))
         except Exception as e:
             err = e
-            time.sleep(2 * (i + 1))
+            # 429 = vamos demasiado rápido: se espera de verdad antes de volver a preguntar
+            time.sleep(45 * (i + 1) if getattr(e, "code", 0) == 429 else 3 * (i + 1))
     raise err
 
 
@@ -69,6 +70,7 @@ def main():
     sets = [dict(zip(("id", "region", "lang", "es", "en", "ja", "local", "rd", "n"), r)) for r in con.execute(
         "SELECT set_id, region, lang, name_es, name_en, name_ja, name_local, release_date, card_count FROM sets WHERE region='int' OR lang='ja'")]
     ids_db = {r[0] for r in con.execute("SELECT card_id FROM cards")}
+    nombres = {r[0]: {norm(x) for x in r[1:] if x} for r in con.execute("SELECT card_id, name_en, name_es, name_ja, name_local FROM cards")}
 
     # 1) Qué cartas no tienen imagen en TCGdex (una petición por set)
     def sin_imagen(s):
@@ -84,6 +86,17 @@ def main():
     print(f"TCGdex: {total_falta} cartas sin imagen en {len(falta)} sets")
 
     out, informe = {}, {"sets": {}}
+    def casar(sid, locs, by_num, by_nom):
+        """Por número; si no cuadra, por nombre cuando solo hay una carta con ese nombre."""
+        res = {}
+        for l in locs:
+            u = by_num.get(num(l))
+            if not u:
+                hits = {x for n in nombres.get(f"{sid}-{l}", ()) for x in by_nom.get(n, [])}
+                u = next(iter(hits)) if len(hits) == 1 else None
+            res[l] = u
+        return res
+
     def poner(sid, cards, fuente):
         hechos = 0
         for local, url in cards.items():
@@ -96,11 +109,14 @@ def main():
 
     def binder(chid):
         cards = get(f"https://www.collectholo.com/api/sets/{chid}/binder").get("cards", [])
-        by = {}
+        by, nom = {}, {}
         for c in cards:
             if c.get("smallImageUrl") and c.get("isDefaultVariant", True):
                 by.setdefault(num(c.get("number")), c["smallImageUrl"])
-        return by
+                for k in ("name", "name_en"):
+                    if c.get(k):
+                        nom.setdefault(norm(c[k]), []).append(c["smallImageUrl"])
+        return by, nom
 
     # 2) CollectHolo: misma carta en el mismo idioma
     ch = {}
@@ -126,12 +142,12 @@ def main():
         if not x:
             continue
         try:
-            by = binder(x["id"])
+            by, nom = binder(x["id"])
         except Exception as e:
             print("CollectHolo sin cartas de", x["id"], e); continue
-        n = poner(s["id"], {l: by.get(num(l)) for l in locs}, "collectholo:" + x["id"])
+        n = poner(s["id"], casar(s["id"], locs, by, nom), "collectholo:" + x["id"])
         print(f"  {s['id']:>12} → CollectHolo {x['id']}: {n}/{len(locs)}")
-        time.sleep(0.4)
+        time.sleep(2.5)
 
     # 3) pokemontcg.io: cartas internacionales que aún faltan (misma ilustración, en inglés)
     try:
@@ -149,8 +165,10 @@ def main():
         if not cands and en.startswith("mcdonald"):
             yr = (s["rd"] or "")[:4]
             cands = [p for p in pt if "mcdonald" in norm(p["name"]) and yr in p["name"]]
-        if not cands and en:
-            cands = [p for p in pt if en in norm(p["name"]) or norm(p["name"]) in en]
+        kit = re.search(r"trainer\s*kit.*\((.+)\)", s["en"] or "", re.I)
+        if not cands and kit:
+            poke = norm(kit.group(1))
+            cands = [p for p in pt if "trainerkit" in norm(p["name"]) and poke in norm(p["name"])]
         x = pick(cands, s["rd"]) if cands else None
         if not x:
             same = [p for p in pt if day(p.get("releaseDate")) is not None and day(s["rd"]) is not None and abs(day(p["releaseDate"]) - day(s["rd"])) <= 3 and p.get("total") == s["n"]]
@@ -158,11 +176,15 @@ def main():
         if not x:
             continue
         try:
-            cards = get(f"https://api.pokemontcg.io/v2/cards?q=set.id:{x['id']}&pageSize=250&select=number,images").get("data", [])
+            cards = get(f"https://api.pokemontcg.io/v2/cards?q=set.id:{x['id']}&pageSize=250&select=number,name,images").get("data", [])
         except Exception as e:
             print("pokemontcg.io sin cartas de", x["id"], e); continue
-        by = {num(c.get("number")): (c.get("images") or {}).get("small") for c in cards}
-        n = poner(s["id"], {l: by.get(num(l)) for l in locs}, "pokemontcg:" + x["id"])
+        by, nom = {}, {}
+        for c in cards:
+            u = (c.get("images") or {}).get("small")
+            by[num(c.get("number"))] = u
+            nom.setdefault(norm(c.get("name")), []).append(u)
+        n = poner(s["id"], casar(s["id"], locs, by, nom), "pokemontcg:" + x["id"])
         print(f"  {s['id']:>12} → pokemontcg.io {x['id']}: {n}/{len(locs)}")
         time.sleep(0.3)
 
@@ -183,6 +205,7 @@ def main():
                 kom[chid] = [{k: c.get(k) for k in ("number", "name", "name_en", "smallImageUrl", "artist", "illustrator")} for c in get(f"https://www.collectholo.com/api/sets/{chid}/binder").get("cards", [])]
             except Exception as e:
                 kom[chid] = str(e)
+            time.sleep(3)
         informe["komiya"] = kom
         json.dump(informe, open(a.informe, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 

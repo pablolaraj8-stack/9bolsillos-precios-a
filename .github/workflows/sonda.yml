@@ -20,7 +20,7 @@ jobs:
           f = json.load(open("fotos.json")); s = json.load(open("sellado.json"))
           random.seed(1)
           urls = random.sample([v for k, v in f.items() if k != "_v"], min(12, len(f) - 1))
-          urls += [x["u"] for k, v in s.items() if k != "_v" for x in v.get("fotos", []) if x.get("en")][:40]
+          urls += [x["u"] for k, v in s.items() if k != "_v" for x in v.get("fotos", []) if x.get("en")][:24]
           for u in urls:
               try:
                   d = urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "9Bolsillos/1.0"}), timeout=30).read()
