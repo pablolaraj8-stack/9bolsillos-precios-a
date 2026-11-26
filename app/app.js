@@ -394,6 +394,16 @@ const NAME = 'COALESCE(c.name_es,c.name_en,c.name_ja,c.name_local)';
 
 let setsFilter = 'es', setsQuery = '';
 const SETS_LANG = 'es', ILL_LANG = 'ja';
+const isMasterSet = id => (COL.setMode || {})[id] === 'master';
+// Progreso del máster set: versiones que tienes de todas las que cuentan en ese set
+function masterProgress(setId) {
+  const cards = q(`SELECT c.card_id, c.set_id, (c.name_es IS NULL AND s.lang='es' AND s.release_date >= '2019') no_es FROM cards c JOIN sets s USING(set_id) WHERE c.set_id=?`, [setId]).filter(c => !hiddenCard(c));
+  const vm = variantsOf(cards.map(c => c.card_id));
+  let have = 0, total = 0;
+  cards.forEach(c => { const ks = ownedKeys(c.card_id, vm[c.card_id]);
+    uniqVariants(vm[c.card_id]).filter(v => !(v && v.stamp) && !hiddenVariant(c, v)).forEach(v => { total++; if (ks.has(vkey(v))) have++; }); });
+  return { have, total };
+}
 function viewSets() {
   if (setsFilter !== 'mine') setsFilter = 'es';
   const rows = q(`SELECT s.set_id, s.lang, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) name, s.serie, s.release_date,
@@ -406,9 +416,11 @@ function viewSets() {
     const okLang = r => r.lang === SETS_LANG && (setsFilter !== 'mine' || ownCount[r.set_id]);
     const list = rows.filter(r => okLang(r) && (!ql || (r.name || '').toLowerCase().includes(ql) || (r.serie || '').toLowerCase().includes(ql)));
     document.getElementById('setlist').innerHTML = list.map(r => {
-      const o = ownCount[r.set_id] || 0, p = Math.round(o / r.n * 100);
-      return `<a class="setrow" href="#/set/${encodeURIComponent(r.set_id)}"><div class="logobox">${setLogo(r.ib, 'setlogo', r.name, r.set_id)}</div><div class="col" style="flex:1;min-width:0;gap:3px"><b class="ell">${esc(r.name)}</b><span class="muted ell">${esc(r.serie)} · ${r.release_date ? esc(r.release_date.slice(0, 4)) : ''}${setsFilter === 'otros' || setsFilter === 'mine' ? ' · ' + esc(LANGS[r.lang] || r.lang) : ''}</span>
-        <div class="between" style="gap:8px;margin-top:3px"><div class="bar thin" style="flex:1"><div style="width:${p}%"></div></div><span class="cnt ${o ? 'has' : ''}">${o ? `${o}/${r.n}` : r.n}</span></div></div></a>`;
+      const m = isMasterSet(r.set_id), mp = m ? masterProgress(r.set_id) : null;
+      const o = m ? mp.have : ownCount[r.set_id] || 0, tot = m ? mp.total : r.n, p = tot ? Math.round(o / tot * 100) : 0;
+      const tag = m ? `<span class="modetag master">${ico('crown', 11)} Máster</span>` : (ownCount[r.set_id] ? '<span class="modetag">Básico</span>' : '');
+      return `<a class="setrow ${m ? 'master' : ''}" href="#/set/${encodeURIComponent(r.set_id)}"><div class="logobox">${setLogo(r.ib, 'setlogo', r.name, r.set_id)}${m ? `<span class="crown">${ico('crown', 12)}</span>` : ''}</div><div class="col" style="flex:1;min-width:0;gap:3px"><div class="row" style="gap:6px;min-width:0"><b class="ell">${esc(r.name)}</b>${tag}</div><span class="muted ell">${esc(r.serie)} · ${r.release_date ? esc(r.release_date.slice(0, 4)) : ''}${setsFilter === 'otros' || setsFilter === 'mine' ? ' · ' + esc(LANGS[r.lang] || r.lang) : ''}</span>
+        <div class="between" style="gap:8px;margin-top:3px"><div class="bar thin" style="flex:1"><div style="width:${p}%"></div></div><span class="cnt ${o ? 'has' : ''}">${o ? `${o}/${tot}` : tot}</span></div></div></a>`;
     }).join('') || '<p class="muted">No hay sets que coincidan.</p>';
   };
   $view.innerHTML = `<div class="stack"><div class="between"><h1>Colección</h1><a class="pill" style="display:flex;align-items:center" href="#/illustrators">Ilustradores →</a></div>
@@ -588,7 +600,12 @@ function wireControls(rerender) {
   $view.querySelectorAll('[data-bm]').forEach(b => b.onclick = () => { browseMode = b.dataset.bm; rerender(); });
   $view.querySelectorAll('[data-sf]').forEach(b => b.onclick = () => { browseFilter = b.dataset.sf; rerender(); });
   $view.querySelectorAll('[data-sort]').forEach(s => s.onchange = () => { SORT[s.dataset.sort] = s.value; rerender(); });
-  $view.querySelectorAll('[data-ms]').forEach(b => b.onclick = () => { MASTER = b.dataset.ms === 'true'; rerender(); });
+  $view.querySelectorAll('[data-ms]').forEach(b => b.onclick = () => {
+    MASTER = b.dataset.ms === 'true';
+    // En un set, lo que eliges se recuerda: es el set que estás haciendo (básico o máster)
+    const m = location.hash.match(/^#\/set\/([^?]+)/);
+    if (m) { const id = decodeURIComponent(m[1]); COL.setMode ||= {}; if (MASTER) COL.setMode[id] = 'master'; else delete COL.setMode[id]; saveCol(); }
+    rerender(); });
 }
 
 let SET_TAB = 'cards';
@@ -600,6 +617,7 @@ function viewSet(setId) {
     ORDER BY CAST(c.local_id AS INTEGER), c.local_id`, [setId]);
   const ib = (cards.find(c => c.image_base) || {}).image_base;
   const vmap = variantsOf(cards.map(c => c.card_id));
+  MASTER = isMasterSet(setId);
   const sealed = s.cm_expansion_id ? q(`SELECT p.cm_product_id, p.name, p.category, pr.trend, pr.avg30, pr.low FROM cm_products p LEFT JOIN prices pr USING(cm_product_id)
     WHERE p.kind='sealed' AND p.cm_expansion_id=? ORDER BY pr.trend DESC`, [s.cm_expansion_id]) : [];
   const vtypes = [...new Set(cards.flatMap(c => uniqVariants(vmap[c.card_id]).filter(v => v && !v.stamp).map(vLabel)))];
@@ -607,7 +625,7 @@ function viewSet(setId) {
   const nHidden = cards.filter(c => (COL.hide || {})[c.card_id] || c.no_es).length;
   $view.innerHTML = `<div class="stack">
     <div class="row"><a href="#/sets" class="pill" style="display:flex;align-items:center">←</a></div>
-    <div class="sethero"><div class="herologo">${setLogo(ib, 'biglogo', s.name, s.set_id)}</div><div class="col" style="align-items:center;text-align:center"><h1>${esc(s.name)}</h1><span class="muted">${esc(s.serie)} · ${esc(s.release_date || '')} · ${esc(LANGS[s.lang] || s.lang)}</span></div></div>
+    <div class="sethero ${MASTER ? 'master' : ''}"><div class="herologo">${setLogo(ib, 'biglogo', s.name, s.set_id)}${MASTER ? `<span class="mbadge">${ico('crown', 14)} Máster set</span>` : ''}</div><div class="col" style="align-items:center;text-align:center"><h1>${esc(s.name)}</h1><span class="muted">${esc(s.serie)} · ${esc(s.release_date || '')} · ${esc(LANGS[s.lang] || s.lang)}</span></div></div>
     ${sealed.length ? `<div class="tbrow">${seg('stab', [['cards', 'Cartas'], ['sealed', `Sellado · ${sealed.filter(x => { const t = cmSealedType(x); return t && t !== 'other'; }).length}`]], SET_TAB)}<span></span></div>` : ''}
     ${SET_TAB === 'sealed' && sealed.length ? `<div class="sgal sgal1">${sealedGallery(sealed.map(x => Object.assign(x, { cm_expansion_id: s.cm_expansion_id })), ib, s.name)}</div>
       <p class="muted">Fotos: WikiDex. Precio: tendencia en Cardmarket. Toca un producto para ver su evolución, poner tu foto o lo que pagaste.</p></div>` : `
@@ -1784,6 +1802,7 @@ async function applyPendingReal() {
 }
 /* ---------- iconos de línea propios (en lugar de emojis) ---------- */
 const IC = {
+  crown: '<path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5L3 8z"/>',
   calendar: '<rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/>',
   chart: '<path d="M4 19V5M4 19h16"/><path d="M7 15l4-4 3 3 5-6"/>',
   stats: '<path d="M5 20V11M12 20V4M19 20v-6"/>',
@@ -2031,7 +2050,7 @@ async function syncNow(quiet) {
 }
 function mergeCols(a, b) {
   const out = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, hide: {}, setHide: {} }, a);
-  for (const k of ['cards', 'sealed', 'alerts', 'illustrators', 'sell', 'hide', 'extra', 'binders', 'real', 'cmurl']) out[k] = Object.assign({}, a[k] || {}, b[k] || {});
+  for (const k of ['cards', 'sealed', 'alerts', 'illustrators', 'sell', 'hide', 'extra', 'binders', 'real', 'cmurl', 'setMode']) out[k] = Object.assign({}, a[k] || {}, b[k] || {});
   out.real = {}; for (const src of [a.real || {}, b.real || {}]) for (const [k, v] of Object.entries(src)) if (!out.real[k] || (v.d || '') >= (out.real[k].d || '')) out.real[k] = v;
   out.master = Object.assign({}, a.master || {}); for (const [id, m] of Object.entries(b.master || {})) out.master[id] = Object.assign({}, out.master[id] || {}, m);
   out.setHide = Object.assign({}, a.setHide || {}); for (const [id, l] of Object.entries(b.setHide || {})) out.setHide[id] = [...new Set([...(out.setHide[id] || []), ...l])];
