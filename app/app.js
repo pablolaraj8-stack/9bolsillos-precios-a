@@ -791,6 +791,7 @@ function viewSealedItem(id) {
         <div class="actions"><a class="btn cmbtn" id="scmgo" target="_blank" rel="noopener" href="${esc(cm)}">Ver en Cardmarket ${ico('external', 17)}</a>
           <button class="iconbtn lg" id="srealset" aria-label="Cambiar el precio">${ico('pencil', 20)}</button></div></div></div>
     <div class="card"><table><tr><th>Cardmarket</th><th>Mínimo</th><th>Tendencia</th><th>Media 30 d</th></tr><tr><td>Precio</td><td>${eur(x.low)}</td><td>${eur(x.trend)}</td><td>${eur(x.avg30)}</td></tr></table></div>
+    <div id="shops">${shopsSection(x)}</div>
     <div class="col" style="gap:8px"><h2>Evolución del precio</h2>${chartSvg(h, 700, 140)}</div>
     <div class="card col" style="gap:12px"><b>${e ? 'Lo tienes' : 'No lo tienes'}</b>
       ${e ? `<div class="row" style="flex-wrap:wrap"><label class="f">Unidades<input type="number" id="sq" min="1" value="${e.qty || 1}" style="width:90px"></label>
@@ -800,6 +801,7 @@ function viewSealedItem(id) {
   const g = k => document.getElementById(k);
   if (g('sadd')) g('sadd').onclick = () => { COL.sealed[id] = { qty: 1 }; saveCol(); viewSealedItem(id); };
   g('srealset').onclick = () => askRealPrice(+id, false, 'ES', () => viewSealedItem(id));
+  if (!SHOPS) loadShops().then(() => { const el = document.getElementById('shops'); if (el && location.hash === '#/sealeditem/' + id) el.innerHTML = shopsSection(x); });
   g('scmgo').addEventListener('click', () => armAskReal(+id, false, 'ES'));
   if (g('ssave')) g('ssave').onclick = () => { COL.sealed[id].qty = Math.max(1, parseInt(g('sq').value, 10) || 1); COL.sealed[id].buy = parseNum(g('sb').value); saveCol(); toast('Guardado'); viewSealedItem(id); };
   if (g('sdelc')) g('sdelc').onclick = () => { delete COL.sealed[id]; saveCol(); viewSealedItem(id); };
@@ -1484,6 +1486,50 @@ function viewSealed(embed = false) {   // embed: dentro de Colección, en la pes
   }, 200); };
 }
 
+/* ---------- precios del sellado en tiendas españolas (tiendas.py, cada día) ---------- */
+let SHOPS = null, SHOPS_P = null;
+const loadShops = () => SHOPS_P ||= fetch('tiendas.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : {}).catch(() => ({})).then(d => (SHOPS = d));
+const median = a => { const b = a.filter(x => x != null).sort((x, y) => x - y); return b.length ? (b.length % 2 ? b[(b.length - 1) / 2] : (b[b.length / 2 - 1] + b[b.length / 2]) / 2) : null; };
+// Lo normal hoy: la mediana entre la tendencia de Cardmarket y lo que piden las tiendas con stock
+function shopInfo(x) {
+  // Un precio muy lejos de Cardmarket suele ser otro producto (un lote, una caja de 10…): fuera
+  const tr = x.trend ?? x.avg30 ?? null;
+  const offers = ((SHOPS || {})[x.cm_product_id] || []).filter(o => tr == null || (o.p <= tr * 2.5 && o.p >= tr * 0.4));
+  const inStock = offers.filter(o => o.a);
+  const ref = median([x.trend ?? x.avg30 ?? null, ...inStock.map(o => o.p)]);
+  return { offers, inStock, ref, best: inStock[0] || null };
+}
+const RATE = { good: ['Buen precio', 'good'], mid: ['Precio medio', 'mid'], high: ['Sobreprecio', 'high'] };
+function rateOf(p, ref) { if (p == null || !ref) return null; return p <= ref * 0.92 ? 'good' : p >= ref * 1.12 ? 'high' : 'mid'; }
+const rateChip = (r, extra = '') => r ? `<span class="rate ${RATE[r][1]}">${RATE[r][0]}${extra}</span>` : '';
+function shopsSection(x) {
+  if (!SHOPS) return '<div class="card"><span class="muted">Cargando precios de tiendas…</span></div>';
+  const { offers, ref, best } = shopInfo(x);
+  const cmRow = x.low != null ? `<a class="shoprow" target="_blank" rel="noopener" href="${esc(cmSealedLink(x))}"><div class="col" style="flex:1;min-width:0"><b>Cardmarket</b><span class="muted ell">Oferta más baja (cualquier idioma)</span></div><div class="col" style="align-items:flex-end;gap:3px"><b>${eur(x.low)}</b>${rateChip(rateOf(x.low, ref))}</div></a>` : '';
+  const nT = Object.keys(SHOPS._tiendas || {}).length;
+  if (!offers.length) return `<div class="card col" style="gap:8px"><b>Dónde comprarlo en España</b><span class="muted">Ninguna de las ${nT} tiendas que miro lo anuncia en español.</span>${cmRow ? `<div class="list">${cmRow}</div>` : ''}</div>`;
+  const rb = best ? rateOf(best.p, ref) : null;
+  const verdict = best ? `<div class="verdict ${RATE[rb][1]}"><b>${RATE[rb][0]}</b><span>${eur(best.p)} en ${esc(best.s)}${ref ? ` · lo normal hoy: ${eur(ref)}` : ''}</span></div>`
+    : '<div class="verdict none"><b>Agotado en todas</b><span>Ninguna tienda lo tiene en stock ahora mismo</span></div>';
+  return `<div class="card col" style="gap:10px"><div class="between"><b>Dónde comprarlo en España</b><span class="muted" style="font-size:12px">${esc((SHOPS._d || '').split('-').reverse().join('/'))}</span></div>
+    ${verdict}
+    <div class="list">${offers.map(o => `<a class="shoprow ${o.a ? '' : 'out'}" target="_blank" rel="noopener" href="${esc(toSafari(o.u))}"><div class="col" style="flex:1;min-width:0"><b>${esc(o.s)}</b><span class="muted ell">${o.a ? '' : 'Agotado · '}${esc(o.t)}</span></div>
+      <div class="col" style="align-items:flex-end;gap:3px"><b>${eur(o.p)}</b>${o.a ? rateChip(rateOf(o.p, ref)) : ''}</div></a>`).join('')}${cmRow}</div>
+    <span class="muted" style="font-size:12px">Buen precio: un 8 % o más por debajo de lo normal. Sobreprecio: un 12 % o más por encima. Lo normal es la mediana entre la tendencia de Cardmarket y lo que piden hoy las tiendas con stock. Se actualiza cada día.</span></div>`;
+}
+function viewOffers() {
+  if (!SHOPS) { $view.innerHTML = '<div class="stack"><h1>Ofertas de sellado</h1><p class="muted">Cargando precios de tiendas…</p></div>'; loadShops().then(() => location.hash === '#/ofertas' && viewOffers()); return; }
+  const ids = Object.keys(SHOPS).filter(k => !k.startsWith('_')).map(Number), info = sealedPrices(ids);
+  const rows = ids.map(id => { const x = info[id]; if (!x) return null; const si = shopInfo(x); if (!si.best || !si.ref) return null;
+    return Object.assign({ id, x, r: rateOf(si.best.p, si.ref), off: 1 - si.best.p / si.ref }, si); }).filter(Boolean);
+  const good = rows.filter(r => r.r === 'good').sort((a, b) => b.off - a.off);
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Ofertas de sellado</h1></div>
+    <span class="muted">Producto en español que hoy está por debajo de lo normal en alguna tienda española con stock. Vigilo ${rows.length} productos en ${Object.keys(SHOPS._tiendas || {}).length} tiendas.</span>
+    ${good.length ? `<div class="list">${good.map(r => `<a class="item" href="#/sealeditem/${r.id}"><div class="sthumb">${sealedPhotoTag(r.x, r.x.ib)}</div>
+      <div class="col" style="flex:1;min-width:0;gap:3px"><b class="ell">${esc(sealedEsName(r.x, r.x.set_name))}</b><span class="muted ell">${esc(r.best.s)}${r.offers.length < 2 ? ' · solo 1 tienda' : ''} · lo normal ${eur(r.ref)}</span><span>${rateChip('good', ` · −${Math.round(r.off * 100)} %`)}</span></div>
+      <b>${eur(r.best.p)}</b></a>`).join('')}</div>` : '<div class="card"><span class="muted">Hoy no hay nada por debajo de lo normal. Mañana se vuelve a mirar.</span></div>'}</div>`;
+}
+
 /* ---------- lista de venta ---------- */
 function viewSell() {
   const ids = Object.keys(COL.sell), vm = variantsOf(ids);
@@ -1858,6 +1904,7 @@ function viewMore() {
       ${grow('#/sealed', 'box', '#C79A3A', 'Sellado', pl(n('sealed'), 'producto', 'productos'))}</div></div>
     <div class="gsec"><span class="ghead">Comprar y vender</span><div class="group">
       ${grow('#/buy', 'cart', '#2FB57A', 'Qué comprar este mes', 'Reparte tu presupuesto entre lo que te falta')}
+      ${grow('#/ofertas', 'tag', '#E3B341', 'Ofertas de sellado', 'Lo que hoy está barato en tiendas españolas')}
       ${grow('#/calendario', 'calendar', '#E2465B', 'Lanzamientos', 'Próximos sets en España, con cuenta atrás')}
       ${grow('#/expenses', 'wallet', '#3A7BD5', 'Gastos', pl(COL.purchases.length, 'compra apuntada', 'compras apuntadas'))}
       ${grow('#/sell', 'tag', '#D5527F', 'Lista de venta', pl(n('sell'), 'carta', 'cartas') + ' · repetidas y exportar')}</div></div>
@@ -2175,7 +2222,7 @@ function route() {
   if (!DB) return;
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   const [, a, b] = h.split('/');
-  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', scan: 'search', dex: 'sets', stats: 'more', calendario: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more' }[a || ''] || 'home';
+  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', scan: 'search', dex: 'sets', stats: 'more', calendario: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more', ofertas: 'more' }[a || ''] || 'home';
   $tabs.querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
   window.scrollTo(0, 0);
   $view.classList.remove('vin'); void $view.offsetWidth; $view.classList.add('vin');   // entrada suave de cada pantalla
@@ -2194,6 +2241,7 @@ function route() {
     else if (a === 'alerts' || a === 'wish') viewWishlist();
     else if (a === 'expenses') viewExpenses();
     else if (a === 'sealed') viewSealed();
+    else if (a === 'ofertas') viewOffers();
     else if (a === 'sealeditem') viewSealedItem(b);
     else if (a === 'sell') viewSell();
     else if (a === 'buy') viewBuy();

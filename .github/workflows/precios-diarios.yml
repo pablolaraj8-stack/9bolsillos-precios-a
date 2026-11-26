@@ -6,7 +6,7 @@ on:
   workflow_dispatch:        # botón "Run workflow" para lanzarlo a mano
   push:
     branches: [main]
-    paths: ["app/**", "build_db.py", "update_prices.py", "export_web.py", "wikidex.py", "sellado.py", "fotos.py", ".github/workflows/**"]
+    paths: ["app/**", "build_db.py", "update_prices.py", "export_web.py", "wikidex.py", "sellado.py", "fotos.py", "tiendas.py", ".github/workflows/**"]
 
 permissions:
   contents: write
@@ -68,6 +68,11 @@ jobs:
           curl -fsSL "https://pablolaraj8-stack.github.io/9bolsillos-precios-a/sellado.json" -o sellado_prev.json || echo '{}' > sellado_prev.json
           python3 sellado.py --db 9bolsillos.db --prev sellado_prev.json --out sellado.json || cp sellado_prev.json sellado.json
 
+      - name: Precios del sellado en tiendas españolas
+        continue-on-error: true
+        run: |
+          python3 tiendas.py --db 9bolsillos.db --out tiendas.json || curl -fsSL "https://pablolaraj8-stack.github.io/9bolsillos-precios-a/tiendas.json" -o tiendas.json || true
+
       - name: Fotos de las cartas que TCGdex no tiene (CollectHolo y pokemontcg.io)
         continue-on-error: true
         run: |
@@ -89,6 +94,7 @@ jobs:
           cp entrenadores.json _site/ 2>/dev/null || cp entrenadores_prev.json _site/entrenadores.json 2>/dev/null || true
           cp sellado.json _site/ 2>/dev/null || true
           cp fotos.json _site/ 2>/dev/null || true
+          cp tiendas.json _site/ 2>/dev/null || true
           ls -la _site | head -40
           cat _site/version.json
 
