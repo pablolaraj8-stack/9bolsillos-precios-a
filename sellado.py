@@ -10,7 +10,8 @@ import argparse, datetime, json, re, sqlite3, time, urllib.parse, urllib.request
 
 API = "https://www.wikidex.net/api.php"
 UA = {"User-Agent": "9Bolsillos/1.0 (app personal de coleccion Pokemon; github.com/pablolaraj8-stack/9bolsillos-precios-a)"}
-VERSION = 2
+VERSION = 3
+BULBA = "https://archives.bulbagarden.net/w/api.php"
 # tipo de producto según el nombre del archivo en WikiDex (en español)
 TIPOS = [
     ("etbpc", r"Caja de Entrenador [ÉE]lite.*Pok[ée]mon Center|Pok[ée]mon Center.*Caja de Entrenador"),
@@ -27,6 +28,53 @@ TIPOS = [
 FUERA = re.compile(r"TCG\)|Logo|S[íi]mbolo|Icono|Promo|Rareza|Ilustraci[óo]n|\.svg$", re.I)
 
 
+# Bulbagarden Archives (edición inglesa): solo para los tipos de producto que WikiDex no tiene
+TIPOS_EN = [
+    ("etbpc", r"Pok[ée]mon Center.*Elite Trainer Box"),
+    ("etb", r"Elite Trainer Box"),
+    ("bb", r"Build (&|and) Battle"),
+    ("box", r"Booster Box|Booster Display"),
+    ("bundle", r"Booster Bundle"),
+    ("blister", r"Blister|Checklane|3-Pack|Three-Pack|Three Booster"),
+    ("tin", r"\bTin\b"),
+    ("premium", r"Premium Collection|Special Collection|Collection Box|\bCollection\b"),
+    ("deck", r"Theme Deck|League Battle Deck|Battle Deck"),
+    ("booster", r"Booster Pack|\bBooster\b"),
+]
+FUERA_EN = re.compile(r"inner|contents|sleeve|promo card|card list|coin|dice|binder|logo|symbol|artwork|\.svg$|playmat|deck box|\bcase\b", re.I)
+
+
+def bulba(nombre_en, ya, pause=1.0):
+    q = {"action": "query", "list": "search", "srnamespace": 6, "srsearch": f'"{nombre_en}"', "srlimit": 50, "srprop": "snippet", "format": "json", "formatversion": 2}
+    r = json.loads(urllib.request.urlopen(urllib.request.Request(BULBA + "?" + urllib.parse.urlencode(q), headers=UA), timeout=30).read())
+    time.sleep(pause)
+    elegidos, vistos = [], set()
+    for x in r.get("query", {}).get("search", []):
+        f = x["title"]
+        txt = re.sub(r"<[^>]+>", "", x.get("snippet", "")) + " " + f
+        if nombre_en.lower() not in txt.lower() or FUERA_EN.search(txt) or FUERA_EN.search(f):
+            continue
+        t = next((t for t, rx in TIPOS_EN if re.search(rx, txt, re.I)), None)
+        if not t or t in ya or (t, f) in vistos:
+            continue
+        vistos.add((t, f))
+        elegidos.append((f, t))
+    if not elegidos:
+        return []
+    q = {"action": "query", "titles": "|".join(f for f, _ in elegidos[:40]), "prop": "imageinfo", "iiprop": "url", "iiurlwidth": 500, "format": "json", "formatversion": 2}
+    d = json.loads(urllib.request.urlopen(urllib.request.Request(BULBA + "?" + urllib.parse.urlencode(q), headers=UA), timeout=30).read())
+    time.sleep(pause)
+    norm = {x["from"]: x["to"] for x in d.get("query", {}).get("normalized", [])}
+    urls = {p["title"]: (p.get("imageinfo") or [{}])[0].get("thumburl") or (p.get("imageinfo") or [{}])[0].get("url") for p in d.get("query", {}).get("pages", [])}
+    out = []
+    for f, t in elegidos:
+        u = urls.get(norm.get(f, f))
+        if u:
+            n = re.sub(r"^File:", "", re.sub(r"\.(png|jpe?g|webp|gif)$", "", f, flags=re.I))
+            out.append({"t": t, "n": n, "u": u, "en": 1})
+    return out
+
+
 def api(params):
     u = API + "?" + urllib.parse.urlencode(dict(params, format="json", formatversion=2))
     return json.loads(urllib.request.urlopen(urllib.request.Request(u, headers=UA), timeout=30).read())
@@ -39,7 +87,18 @@ def tipo(nombre):
     return None
 
 
-def buscar(nombre_set, pause=1.0):
+def buscar(nombre_set, nombre_en=None, pause=1.0):
+    out = buscar_wikidex(nombre_set, pause)
+    if nombre_en:
+        try:
+            out += bulba(nombre_en, {x["t"] for x in out}, pause)
+        except Exception as e:
+            print("Bulbagarden no ha respondido para", nombre_en, e)
+    orden = [t for t, _ in TIPOS]
+    return sorted(out, key=lambda x: (orden.index(x["t"]), x.get("en", 0), x["n"]))
+
+
+def buscar_wikidex(nombre_set, pause=1.0):
     # 1) archivos con el nombre del set en el título
     r = api({"action": "query", "list": "search", "srnamespace": 6, "srsearch": f'intitle:"{nombre_set}"', "srlimit": 50})
     time.sleep(pause)
@@ -79,8 +138,7 @@ def buscar(nombre_set, pause=1.0):
             u = urls.get(norm.get(f, f))
             if u:
                 out.append({"t": t, "n": n, "u": u})
-    orden = [t for t, _ in TIPOS]
-    return sorted(out, key=lambda x: (orden.index(x["t"]), x["n"]))
+    return out
 
 
 def main():
@@ -100,11 +158,11 @@ def main():
     hoy = datetime.date.today().isoformat()
     mes = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
     db = sqlite3.connect(a.db)
-    sets = db.execute("""SELECT s.set_id, s.name_es FROM sets s WHERE s.lang = 'es' AND s.name_es IS NOT NULL AND s.cm_expansion_id IS NOT NULL
+    sets = db.execute("""SELECT s.set_id, s.name_es, s.name_en FROM sets s WHERE s.lang = 'es' AND s.name_es IS NOT NULL AND s.cm_expansion_id IS NOT NULL
         AND EXISTS (SELECT 1 FROM cm_products p WHERE p.kind = 'sealed' AND p.cm_expansion_id = s.cm_expansion_id)
         ORDER BY s.release_date DESC""").fetchall()
     out, hechos = {"_v": VERSION}, 0
-    for sid, nombre in sets:
+    for sid, nombre, nombre_en in sets:
         p = prev.get(sid)
         if p and (p.get("fotos") or p.get("d", "") > mes):
             out[sid] = p
@@ -114,7 +172,7 @@ def main():
                 out[sid] = p
             continue
         try:
-            fotos = buscar(nombre)
+            fotos = buscar(nombre, nombre_en)
         except Exception as e:
             print("WikiDex no ha respondido para", nombre, e)
             if p:
@@ -124,7 +182,7 @@ def main():
         out[sid] = {"d": hoy, "fotos": fotos}
     json.dump(out, open(a.out, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
     con = sum(1 for k, v in out.items() if k != "_v" and v.get("fotos"))
-    print(f"Sellado: {len(sets)} sets en español con producto · {con} con fotos de WikiDex · {hechos} consultados hoy")
+    print(f"Sellado: {len(sets)} sets en español con producto · {con} con fotos (WikiDex + Bulbagarden) · {hechos} consultados hoy")
 
 
 if __name__ == "__main__":
