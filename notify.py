@@ -123,6 +123,11 @@ def main():
             api('POST', 'push_log', [{'user_id': uid, 'alert_key': k, 'last_price': b, 'notified_at': now} for k, _, _, _, b in hits],
                 prefer='resolution=merge-duplicates')
     sent += release_day(a, db, subs, users, webpush, WebPushException, claims, now)
+    try:   # chollos, precio objetivo de sellado, resumen semanal y Komiya
+        import notify_extra
+        sent += notify_extra.run(a, db, subs, users, webpush, WebPushException, claims, now, api)
+    except Exception as e:
+        print('Avisos extra: fallo', type(e).__name__, str(e)[:300])
     print(f'Avisos: {sent} notificaciones enviadas.')
 
 

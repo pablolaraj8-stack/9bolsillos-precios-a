@@ -29,7 +29,7 @@ ES = re.compile(r"espa[nñ]ol|castellano|\[esp?\]|\(esp?\)|\bes\b|\besp\b", re.I
 FUERA = re.compile(r"ingl[eé]s|english|\[en\]|\(en\)|\ben\]|japon|\bjp\b|\bjap\b|chin[oa]|\bch\b|corean|\bkr\b|\bkor\b|"
                    r"aleman|franc[eé]s|italian|portugu|da[nñ]ad|damaged|abiert|protector|funda|acr[ií]lic|participaci|apertura|"
                    r"case\b|\bx\s?\d+\b|\d+\s?x\b|pack de \d|lote|display de|caja de \d+ (etb|bundles)|vac[ií]a|empty|sin pl[aá]stico|"
-                   r"one piece|yu-?gi|magic|lorcana|dragon ball|digimon|riftbound|topps|funko|star wars|union arena|gundam", re.I)
+                   r"revista|magazine|one piece|yu-?gi|magic|lorcana|dragon ball|digimon|riftbound|topps|funko|star wars|union arena|gundam", re.I)
 TIPOS = [  # (tipo, expresión en el título de la tienda, cómo se llama en Cardmarket)
     ("etbpc", r"pok[eé]mon center", None),
     ("etb", r"\betb\b|entrenador [eé]lite|entrenador de [eé]lite|elite trainer", r"^(?!.*(Pok[ée]mon Center|Case|\d+ Elite|Empty|Display)).*Elite Trainer Box"),

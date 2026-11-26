@@ -544,6 +544,14 @@ function renderBinder({ akey, E, tile, el, draw, ids, label }) {
     binderCfg(akey).off = Math.max(0, Math.min(99, parseInt(v, 10) || 0)); saveCol(); draw(); };
   swipePages(el, turn);
 }
+// «Con 50 €/mes lo acabas en marzo de 2027» (presupuesto de Qué comprar)
+function finishLine(cost, n) {
+  const bud = parseFloat(lsGet('buy_budget', '50')) || 0;
+  if (!bud) return `<span class="muted" style="font-size:13px">Te faltan ${n} · pon un presupuesto en <a href="#/buy">Qué comprar</a> y te digo cuándo lo acabas.</span>`;
+  const m = Math.max(1, Math.ceil(cost / bud)), d = new Date(); d.setMonth(d.getMonth() + m);
+  const mes = d.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+  return `<span class="finish">${ico('calendar', 15)} Te faltan ${n}. Con ${eur(bud)}/mes lo acabas en ${m === 1 ? 'un mes' : m + ' meses'} (${mes}). <a href="#/buy">Cambiar</a></span>`;
+}
 function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
   const kind = opts.kind || 'set', mode = SORT[kind];
   const pr = c => { const p = COL.cards[c.card_id] ? vPrice(ownedVariant(c.card_id, vmap[c.card_id])) : cheapest(vmap[c.card_id]); return p ?? -1; };
@@ -569,7 +577,9 @@ function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
     headEl.innerHTML = `<div class="between"><b>${MASTER ? 'Máster set: ' : ''}Tienes ${have} de ${E.length}${MASTER ? ' versiones' : ''}</b><b class="up" style="font-size:22px">${Math.round(p)} %</b></div>
       <div class="bar"><div style="width:${p}%"></div></div>
       <div class="between muted" style="flex-wrap:wrap"><span>Tu parte vale <b style="color:var(--tx)">${eur(val)}</b></span><span>Completarlo hoy: <b style="color:var(--tx)">${eur(missCost)}</b></span></div>
-      ${MASTER ? '' : bulkAlertButton(key)}`;
+      ${key.startsWith('set:') && missCost > 0 ? finishLine(missCost, E.length - have) : ''}
+      ${MASTER ? '' : bulkAlertButton(key)}
+      ${key.startsWith('set:') ? `<a class="pill" href="#/abrir/${encodeURIComponent(key.slice(4))}" style="align-self:flex-start;font-size:13px">Apuntar una apertura de este set</a>` : ''}`;
     const bb = headEl.querySelector('[data-bulk]'); if (bb) bb.onclick = () => bulkAlerts(key, cards.filter(c => !COL.cards[c.card_id]).map(c => { const v = (vmap[c.card_id] || []).slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0]; return v && vPrice(v) ? { key: v.cm_product_id + '|' + (v.variant || ''), card: c.card_id, cm: v.cm_product_id, variant: v.variant, price: vPrice(v), name: c.name } : null; }).filter(Boolean), draw);
     const tile = (e, i, pocket) => {
       const c = e.c, has = owns(e), pr = priceOf(e);
@@ -792,6 +802,8 @@ function viewSealedItem(id) {
           <button class="iconbtn lg" id="srealset" aria-label="Cambiar el precio">${ico('pencil', 20)}</button></div></div></div>
     <div class="card"><table><tr><th>Cardmarket</th><th>Mínimo</th><th>Tendencia</th><th>Media 30 d</th></tr><tr><td>Precio</td><td>${eur(x.low)}</td><td>${eur(x.trend)}</td><td>${eur(x.avg30)}</td></tr></table></div>
     <div id="shops">${shopsSection(x)}</div>
+    <div id="openev">${openSection(x)}</div>
+    ${sealedAlertCard(x)}
     <div class="col" style="gap:8px"><h2>Evolución del precio</h2>${chartSvg(h, 700, 140)}</div>
     <div class="card col" style="gap:12px"><b>${e ? 'Lo tienes' : 'No lo tienes'}</b>
       ${e ? `<div class="row" style="flex-wrap:wrap"><label class="f">Unidades<input type="number" id="sq" min="1" value="${e.qty || 1}" style="width:90px"></label>
@@ -801,7 +813,8 @@ function viewSealedItem(id) {
   const g = k => document.getElementById(k);
   if (g('sadd')) g('sadd').onclick = () => { COL.sealed[id] = { qty: 1 }; saveCol(); viewSealedItem(id); };
   g('srealset').onclick = () => askRealPrice(+id, false, 'ES', () => viewSealedItem(id));
-  if (!SHOPS) loadShops().then(() => { const el = document.getElementById('shops'); if (el && location.hash === '#/sealeditem/' + id) el.innerHTML = shopsSection(x); });
+  if (!SHOPS) loadShops().then(() => { const el = document.getElementById('shops'); if (el && location.hash === '#/sealeditem/' + id) { el.innerHTML = shopsSection(x); document.getElementById('openev').innerHTML = openSection(x); } });
+  wireSealedAlert(+id, () => viewSealedItem(id));
   g('scmgo').addEventListener('click', () => armAskReal(+id, false, 'ES'));
   if (g('ssave')) g('ssave').onclick = () => { COL.sealed[id].qty = Math.max(1, parseInt(g('sq').value, 10) || 1); COL.sealed[id].buy = parseNum(g('sb').value); saveCol(); toast('Guardado'); viewSealedItem(id); };
   if (g('sdelc')) g('sdelc').onclick = () => { delete COL.sealed[id]; saveCol(); viewSealedItem(id); };
@@ -1277,6 +1290,12 @@ function markAlertsSeen(list) {
   try { if (navigator.clearAppBadge) navigator.clearAppBadge(); } catch (e) {}
   if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistration().then(r => r && r.getNotifications ? r.getNotifications() : []).then(ns => ns.forEach(n => { const u = (n.data && n.data.url) || ''; if (!u || /#\/(wish|alerts)/.test(u)) n.close(); })).catch(() => {});
 }
+function sealedWatchSection() {
+  const ids = Object.keys(COL.sealedAlerts || {}).map(Number); if (!ids.length) return '';
+  const info = sealedPrices(ids);
+  return `<div id="swl" class="col" style="gap:8px"><h2>Sellado con precio objetivo</h2><div class="list">${ids.filter(id => info[id]).map(id => { const x = info[id], t = COL.sealedAlerts[id].target, b = sealedBestNow(x), hit = b && b.p <= t;
+    return `<a class="item" href="#/sealeditem/${id}"><div class="sthumb">${sealedPhotoTag(x, x.ib)}</div><div class="col" style="flex:1;min-width:0;gap:2px"><b class="ell">${esc(sealedEsName(x, x.set_name))}</b><span class="muted ell">Objetivo ${eur(t)}${b ? ' · ahora en ' + esc(b.s) : ''}</span>${hit ? rateChip('good', ' · ya está') : ''}</div><b>${b ? eur(b.p) : '—'}</b></a>`; }).join('')}</div></div>`;
+}
 function viewWishlist() {
   const list = alertStatus();
   markAlertsSeen(list);
@@ -1295,7 +1314,9 @@ function viewWishlist() {
         <b>${eur(a.now)}</b></a><button class="pill" data-bought="${esc(a.key)}" title="La he comprado">✓</button></div>`;
       }).join('')}</div>`
       : `<div class="card muted">Tu lista está vacía. Abre cualquier carta y pulsa "♡ La quiero". Si le pones un precio objetivo, te avisa cuando baje.</div>`}
-    <p class="muted">Ordenadas de la más cercana a tu objetivo a la más lejana. "✓" la pasa a tu colección y apunta la compra en tus gastos.</p></div>`;
+    <p class="muted">Ordenadas de la más cercana a tu objetivo a la más lejana. "✓" la pasa a tu colección y apunta la compra en tus gastos.</p>
+    ${sealedWatchSection()}</div>`;
+  if (!SHOPS && Object.keys(COL.sealedAlerts || {}).length) loadShops().then(() => { const el = document.getElementById('swl'); if (el && location.hash === '#/wish') el.outerHTML = sealedWatchSection(); });
   $view.querySelectorAll('[data-bought]').forEach(b => b.onclick = () => {
     const a = list.find(x => x.key === b.dataset.bought); if (!a) return;
     const v = prompt(`¿Cuánto has pagado por ${a.info.name}? (€)`, a.now != null ? a.now.toFixed(2).replace('.', ',') : '');
@@ -1554,6 +1575,203 @@ function viewOffers() {
     ${good.length ? `<div class="list">${good.map(r => `<a class="item" href="#/sealeditem/${r.id}"><div class="sthumb">${sealedPhotoTag(r.x, r.x.ib)}</div>
       <div class="col" style="flex:1;min-width:0;gap:3px"><b class="ell">${esc(sealedEsName(r.x, r.x.set_name))}</b><span class="muted ell">${esc(r.best.s)}${r.offers.length < 2 ? ' · solo 1 tienda' : ''} · lo normal ${eur(r.ref)}</span><span>${rateChip('good', ` · −${Math.round(r.off * 100)} %`)}</span></div>
       <div class="col" style="align-items:flex-end;gap:2px"><b>${eur(r.best.tot)}</b><span class="muted" style="font-size:11px">${r.best.env ? 'con envío' : 'envío gratis'}</span></div></a>`).join('')}</div>` : '<div class="card"><span class="muted">Hoy no hay nada por debajo de lo normal. Mañana se vuelve a mirar.</span></div>'}</div>`;
+}
+
+/* ---------- ¿Abrir o guardar? Valor medio de lo que sale al abrir ---------- */
+// Probabilidad aproximada por sobre (Escarlata y Púrpura / Megaevolución). El resto del hueco raro es «Rare».
+const PULL = { 'Double rare': 1 / 6, 'Ultra Rare': 1 / 15, 'Illustration rare': 1 / 9, 'Special illustration rare': 1 / 86, 'Hyper rare': 1 / 140,
+  'Mega Hyper Rare': 1 / 400, 'ACE SPEC Rare': 1 / 20, 'Shiny rare': 1 / 12, 'Shiny Ultra Rare': 1 / 60 };
+const PACK_BASE = 0.3;   // comunes, infrecuentes y reverse de un sobre, de media
+const EV_CACHE = {};
+function packEV(setId) {
+  if (EV_CACHE[setId] !== undefined) return EV_CACHE[setId];
+  const s = q('SELECT release_date FROM sets WHERE set_id=?', [setId])[0];
+  if (!s || (s.release_date || '') < '2023-03') return (EV_CACHE[setId] = null);
+  const cards = q('SELECT card_id, rarity FROM cards WHERE set_id=?', [setId]);
+  const vm = variantsOf(cards.map(c => c.card_id)), by = {};
+  cards.forEach(c => { const p = (vm[c.card_id] || []).filter(v => v && !isRevHolo(v) && !v.stamp).map(vPrice).filter(x => x != null).sort((a, b) => a - b)[0];
+    if (p != null) (by[c.rarity] ||= []).push(p); });
+  const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+  let ev = PACK_BASE, used = 0;
+  for (const [r, pr] of Object.entries(PULL)) if (by[r]) { ev += pr * avg(by[r]); used += pr; }
+  if (!used) return (EV_CACHE[setId] = null);
+  if (by.Rare) ev += Math.max(0, 1 - used) * avg(by.Rare);
+  return (EV_CACHE[setId] = ev);
+}
+function packsOf(x) {
+  const n = x.name || '', t = cmSealedType(x), m = n.match(/\((\d+) Boosters?\)/i);
+  if (m) return +m[1];
+  if (t === 'etb') return 9;
+  if (t === 'etbpc') return 11;
+  if (t === 'box') return /Sleeved|Case/i.test(n) ? null : 36;
+  if (t === 'bundle') return 6;
+  if (t === 'bb') return 4;
+  if (t === 'blister') { const k = n.match(/(\d)-Pack/i); return k ? +k[1] : null; }
+  if (/Booster$/i.test(n) || /Sleeved Booster$/i.test(n)) return 1;
+  return null;
+}
+function openSection(x) {
+  if (!x.set_id) return '';
+  const ev = packEV(x.set_id), n = packsOf(x);
+  if (!ev || !n) return '';
+  const bn = sealedBestNow(x), price = bn ? bn.p : rPrice(x);   // lo más barato que te costaría ahora, con envío
+  if (!price) return '';
+  const val = ev * n, r = val / price;
+  const [cls, t, sub] = r >= 1.15 ? ['good', 'Abrir sale a cuenta', 'De media, lo que sale vale más de lo que pagas.']
+    : r >= 0.85 ? ['mid', 'Más o menos lo mismo', 'Abrir o no es cuestión de suerte y de ganas.']
+      : ['high', 'Mejor guardarla o comprar sueltas', 'De media, lo que sale vale menos de lo que pagas.'];
+  return `<div class="card col" style="gap:10px"><b>¿Abrir o guardar?</b>
+    <div class="verdict ${cls}"><b>${t}</b><span>${sub}</span></div>
+    <div class="kpis"><div><span class="muted">Valor medio al abrir</span><b>${eur(val)}</b></div><div><span class="muted">Te cuesta${bn ? ' (' + esc(bn.s) + ')' : ''}</span><b>${eur(price)}</b></div><div><span class="muted">Por sobre</span><b>${eur(ev)}</b></div><div><span class="muted">Sobres</span><b>${n}</b></div></div>
+    <span class="muted" style="font-size:12px">Aproximado: probabilidades típicas de cada rareza y el precio medio en Cardmarket de las cartas del set (mezcla idiomas; en español suelen valer algo menos). No cuenta la promo ni los accesorios. ${COL.sealed[x.cm_product_id] ? '' : ''}</span></div>`;
+}
+
+/* ---------- avisos de un producto sellado: chollos y precio objetivo ---------- */
+function sealedAlertCard(x) {
+  const id = x.cm_product_id, mode = COL.chollos || 'all', w = !!(COL.chollosWatch || {})[id], t = ((COL.sealedAlerts || {})[id] || {}).target;
+  return `<div class="card col" style="gap:10px"><b>Avisos de este producto</b>
+    ${mode === 'off' ? '<span class="muted">Tienes apagados los avisos de chollos (Ajustes).</span>'
+      : mode === 'all' ? '<span class="muted">Te aviso si se pone a buen precio en alguna tienda (tienes activados los avisos de todos los chollos).</span>'
+        : `<label class="row" style="gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="swatch" ${w ? 'checked' : ''}> <span>Avisarme cuando esté a buen precio</span></label>`}
+    <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap"><span>Avísame si baja de</span><input id="stgt" type="text" inputmode="decimal" placeholder="Ej.: 55" value="${t != null ? String(t).replace('.', ',') : ''}" style="width:90px"><b>€</b>
+      <button class="btn sec" id="stgtok">${t != null ? 'Cambiar' : 'Guardar'}</button>${t != null ? '<button class="pill" id="stgtdel">Quitar</button>' : ''}</div>
+    <span class="muted" style="font-size:12px">Cuenta lo que te costaría en casa: precio con envío en las tiendas o Cardmarket.</span>
+    <a class="btn sec" href="#/abrir/${id}" style="text-align:center">Apuntar que lo he abierto</a></div>`;
+}
+function wireSealedAlert(id, rerender) {
+  const g = k => document.getElementById(k);
+  if (g('swatch')) g('swatch').onchange = () => { COL.chollosWatch ||= {}; if (g('swatch').checked) COL.chollosWatch[id] = 1; else delete COL.chollosWatch[id]; saveCol(); toast(g('swatch').checked ? 'Te avisaré de sus chollos' : 'Sin avisos de chollos de este producto'); };
+  if (g('stgtok')) g('stgtok').onclick = () => { const v = parseNum(g('stgt').value); if (!(v > 0)) { g('stgt').focus(); return; } COL.sealedAlerts ||= {}; COL.sealedAlerts[id] = { target: v, created: todayISO() }; saveCol(); toast('Te avisaré si baja de ' + eur(v)); rerender(); };
+  if (g('stgtdel')) g('stgtdel').onclick = () => { delete (COL.sealedAlerts || {})[id]; saveCol(); rerender(); };
+}
+// Lo que te costaría en casa lo más barato ahora mismo (tiendas con stock o Cardmarket)
+function sealedBestNow(x) {
+  const si = SHOPS ? shopInfo(x) : null, opts = [];
+  if (si && si.best) opts.push({ p: si.best.tot, s: si.best.s });
+  if (x.low != null) opts.push({ p: x.low + CM_SHIP.c, s: 'Cardmarket' });
+  return opts.sort((a, b) => a.p - b.p)[0] || null;
+}
+
+/* ---------- registro de aperturas ---------- */
+function viewOpen(arg) {
+  const isProd = /^\d+$/.test(arg);
+  const x = isProd ? sealedPrices([+arg])[+arg] : null;
+  const setId = x ? x.set_id : arg;
+  if (!setId) { $view.innerHTML = '<p>No sé de qué set es este producto.</p>'; return; }
+  const s = q('SELECT set_id, COALESCE(name_es,name_en,name_ja,name_local) name FROM sets WHERE set_id=?', [setId])[0];
+  const cards = q(`SELECT c.card_id, c.local_id, ${NAME} name, c.rarity, c.image_base FROM cards c WHERE c.set_id=? AND COALESCE(c.rarity,'') NOT IN ('Common','Uncommon','Común','Poco común') ORDER BY CAST(c.local_id AS INTEGER), c.local_id`, [setId]);
+  const hits = {}, packs0 = x ? packsOf(x) || 1 : 1, own = x && COL.sealed[x.cm_product_id];
+  const cost0 = own && own.buy != null ? own.buy : x ? (sealedBestNow(x) || {}).p : null;
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="javascript:history.back()" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Apuntar apertura</h1></div>
+    <div class="card col" style="gap:10px"><b>${esc(x ? sealedEsName(x, x.set_name) : s.name)}</b>
+      <div class="row" style="gap:10px;flex-wrap:wrap"><label class="f">Fecha<input type="date" id="od" value="${todayISO()}"></label>
+      <label class="f" style="width:90px">Sobres<input type="number" id="op" min="1" value="${packs0}"></label>
+      <label class="f" style="width:120px">Te costó (€)<input type="text" inputmode="decimal" id="oc" value="${cost0 != null ? String(Math.round(cost0 * 100) / 100).replace('.', ',') : ''}"></label></div>
+      <label class="row" style="gap:8px;align-items:center"><input type="checkbox" id="oadd" checked> <span>Añadir a mi colección las cartas que me han salido</span></label>
+      ${own ? `<label class="row" style="gap:8px;align-items:center"><input type="checkbox" id="osub" checked> <span>Quitar 1 de mi sellado (lo tenías guardado)</span></label>` : ''}</div>
+    <div class="between"><b>¿Qué te ha salido? <span class="muted" style="font-weight:400">(raras y mejores)</span></b><span class="muted" id="ocount">0</span></div>
+    <span class="muted" style="font-size:13px">Toca una carta para marcarla; tócala otra vez para sumar otra copia. Mantén pulsado para quitarla.</span>
+    <div class="grid" id="ogrid">${cards.map(c => `<div class="tile" data-oc="${esc(c.card_id)}"><div class="img">${img(c.image_base, '', '', c.card_id)}</div><span class="ttl">${esc(c.local_id)} · ${esc(c.name)}</span><span class="oq" hidden>×1</span></div>`).join('')}</div>
+    <button class="btn" id="osave">Guardar apertura</button></div>`;
+  const upd = el => { const n = hits[el.dataset.oc] || 0, b = el.querySelector('.oq'); el.classList.toggle('on', n > 0); b.hidden = !n; b.textContent = '×' + n;
+    document.getElementById('ocount').textContent = Object.values(hits).reduce((a, b) => a + b, 0) + ' marcadas'; };
+  $view.querySelectorAll('[data-oc]').forEach(el => {
+    let t = null, long = false;
+    el.onpointerdown = () => { long = false; t = setTimeout(() => { long = true; delete hits[el.dataset.oc]; upd(el); }, 550); };
+    el.onpointerup = el.onpointerleave = () => clearTimeout(t);
+    el.onclick = () => { if (long) return; hits[el.dataset.oc] = (hits[el.dataset.oc] || 0) + 1; upd(el); };
+  });
+  document.getElementById('osave').onclick = () => {
+    const packs = Math.max(1, parseInt(document.getElementById('op').value, 10) || 1), cost = parseNum(document.getElementById('oc').value);
+    COL.openings ||= [];
+    COL.openings.push({ id: Date.now(), d: document.getElementById('od').value || todayISO(), cm: x ? x.cm_product_id : null, set: setId, packs, cost, hits });
+    if (document.getElementById('oadd').checked) { const vm = variantsOf(Object.keys(hits));
+      for (const [id, n] of Object.entries(hits)) { if (COL.cards[id]) COL.cards[id].qty = (COL.cards[id].qty || 1) + n;
+        else { const v = (vm[id] || []).find(v => v && !isRevHolo(v) && !v.stamp) || (vm[id] || [])[0]; COL.cards[id] = { set: setId, cm: v ? v.cm_product_id : null, variant: v ? v.variant : null, qty: n }; } } }
+    const sub = document.getElementById('osub');
+    if (sub && sub.checked && own) { own.qty = (own.qty || 1) - 1; if (own.qty <= 0) delete COL.sealed[x.cm_product_id]; }
+    saveCol(); toast('Apertura guardada'); location.hash = '#/aperturas';
+  };
+}
+function openingValue(o) {
+  const ids = Object.keys(o.hits || {}); if (!ids.length) return 0;
+  const vm = variantsOf(ids);
+  return ids.reduce((t, id) => { const p = (vm[id] || []).filter(v => v && !isRevHolo(v) && !v.stamp).map(vPrice).filter(x => x != null).sort((a, b) => a - b)[0]; return t + (p || 0) * o.hits[id]; }, 0);
+}
+function viewOpenings() {
+  const L = (COL.openings || []).slice().sort((a, b) => (b.d || '').localeCompare(a.d || '') || b.id - a.id);
+  let spent = 0, got = 0, exp = 0, packs = 0;
+  const rows = L.map(o => { const v = openingValue(o), e = (packEV(o.set) || PACK_BASE) * o.packs; spent += o.cost || 0; got += v; exp += e; packs += o.packs;
+    const s = q('SELECT COALESCE(name_es,name_en,name_ja,name_local) name FROM sets WHERE set_id=?', [o.set])[0] || {};
+    const p = o.cm ? sealedPrices([o.cm])[o.cm] : null;
+    const ids = Object.keys(o.hits || {}), vm = variantsOf(ids);
+    const top = ids.map(id => [id, (vm[id] || []).filter(v => v && !isRevHolo(v)).map(vPrice).filter(x => x != null).sort((a, b) => a - b)[0] || 0]).sort((a, b) => b[1] - a[1])[0];
+    const tc = top ? q('SELECT card_id, image_base FROM cards WHERE card_id=?', [top[0]])[0] : null;
+    return `<div class="item"><div class="thumb">${tc ? img(tc.image_base, '', '', tc.card_id) : ''}</div><div class="col" style="flex:1;min-width:0;gap:2px">
+      <b class="ell">${esc(p ? sealedEsName(p, p.set_name) : (s.name || o.set))}</b><span class="muted ell">${esc((o.d || '').split('-').reverse().join('/'))} · ${o.packs} sobre${o.packs > 1 ? 's' : ''}${o.cost != null ? ' · pagaste ' + eur(o.cost) : ''}</span>
+      <span class="muted ell">Sacaste ${eur(v)} · lo normal ${eur(e)}</span></div>
+      <div class="col" style="align-items:flex-end;gap:4px"><b class="${o.cost == null ? '' : v >= o.cost ? 'up' : 'down'}">${o.cost != null ? (v >= o.cost ? '+' : '−') + eur(Math.abs(v - o.cost)) : eur(v)}</b><button class="pill" data-odel="${o.id}" style="font-size:12px">Borrar</button></div></div>`; });
+  const luck = exp ? got / exp : null;
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Aperturas</h1></div>
+    ${L.length ? `<div class="card col" style="gap:8px"><div class="kpis"><div><span class="muted">Sobres abiertos</span><b>${packs}</b></div><div><span class="muted">Pagaste</span><b>${eur(spent)}</b></div><div><span class="muted">Te salió</span><b>${eur(got)}</b></div><div><span class="muted">Tu suerte</span><b class="${luck >= 1 ? 'up' : 'down'}">${luck != null ? Math.round(luck * 100) + ' %' : '—'}</b></div></div>
+      <span class="muted" style="font-size:12px">Tu suerte compara lo que te ha salido con lo que sale de media en esos sobres (100 % = lo normal). Valores de hoy en Cardmarket.</span></div>
+      <div class="list">${rows.join('')}</div>`
+    : '<div class="card col" style="gap:6px;align-items:flex-start"><b>Aún no has apuntado ninguna apertura</b><span class="muted">En la ficha de un producto sellado, toca «Apuntar que lo he abierto». También desde la página de un set.</span></div>'}</div>`;
+  $view.querySelectorAll('[data-odel]').forEach(b => b.onclick = () => { if (!confirm('¿Borrar esta apertura? Las cartas siguen en tu colección.')) return; COL.openings = (COL.openings || []).filter(o => String(o.id) !== b.dataset.odel); saveCol(); viewOpenings(); });
+}
+
+/* ---------- lista de intercambio: un enlace con tus repetidas y lo que buscas, sin precios ---------- */
+const b64e = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64e = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+async function packShare(obj) {
+  const data = new TextEncoder().encode(JSON.stringify(obj));
+  try { const cs = new CompressionStream('deflate-raw'); const out = await new Response(new Blob([data]).stream().pipeThrough(cs)).arrayBuffer(); return 'z' + b64e(new Uint8Array(out)); }
+  catch (e) { return 'j' + b64e(data); }
+}
+async function unpackShare(s) {
+  const bytes = unb64e(s.slice(1));
+  if (s[0] === 'z') { const ds = new DecompressionStream('deflate-raw'); return JSON.parse(await new Response(new Blob([bytes]).stream().pipeThrough(ds)).text()); }
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+function tradeLists() {
+  const dup = dupRows().map(r => r.id);
+  const want = [...new Set(Object.values(COL.alerts || {}).map(a => a.card).filter(id => id && !COL.cards[id]))];
+  return { d: dup, w: want };
+}
+const tradeGrid = ids => { if (!ids.length) return '<span class="muted">Nada por ahora.</span>';
+  const info = {}; q(`SELECT c.card_id, ${NAME} name, c.local_id, c.image_base, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => info[r.card_id] = r);
+  return `<div class="grid">${ids.filter(id => info[id]).map(id => { const r = info[id]; return `<div class="tile"><div class="img">${img(r.image_base, '', '', id)}</div><span class="ttl">${esc(r.name)}</span><span class="muted" style="font-size:11px">${esc(r.set_name)} · ${esc(r.local_id)}</span></div>`; }).join('')}</div>`; };
+async function viewTrade() {
+  const L = tradeLists(), name = lsGet('trade_name', '');
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Lista de intercambio</h1></div>
+    <span class="muted">Un enlace con tus repetidas y lo que buscas (tus deseos), sin precios ni nada más de tu colección. Quien lo abra lo ve sin cuenta.</span>
+    <label class="f">Tu nombre (opcional)<input id="tn" value="${esc(name)}" placeholder="Ej.: Pablo"></label>
+    <div class="row" style="gap:8px"><button class="btn" id="tshare" style="flex:1">Compartir enlace</button><button class="btn sec" id="tcopy">Copiar</button></div>
+    <h2>Te sobran · ${L.d.length}</h2>${tradeGrid(L.d)}
+    <h2>Buscas · ${L.w.length}</h2>${tradeGrid(L.w)}</div>`;
+  const link = async () => location.origin + location.pathname + '#/i/' + await packShare({ n: document.getElementById('tn').value.trim(), d: L.d, w: L.w });
+  document.getElementById('tn').onchange = e => lsSet('trade_name', e.target.value.trim());
+  document.getElementById('tcopy').onclick = async () => { try { await navigator.clipboard.writeText(await link()); toast('Enlace copiado'); } catch (e) { prompt('Copia el enlace:', await link()); } };
+  document.getElementById('tshare').onclick = async () => { const u = await link(); if (navigator.share) { try { await navigator.share({ title: 'Mi lista de intercambio Pokémon', url: u }); } catch (e) {} } else { try { await navigator.clipboard.writeText(u); toast('Enlace copiado'); } catch (e) { prompt('Copia el enlace:', u); } } };
+}
+async function viewTradeShared(data) {
+  let o = null; try { o = await unpackShare(data); } catch (e) {}
+  if (!o) { $view.innerHTML = '<div class="stack"><h1>Lista de intercambio</h1><p class="muted">El enlace no es válido o está incompleto.</p></div>'; return; }
+  $view.innerHTML = `<div class="stack"><h1>${o.n ? esc(o.n) + ': lista' : 'Lista'} de intercambio</h1><span class="muted">Cartas Pokémon que le sobran y que busca. Si tienes algo que le interese, escríbele.</span>
+    <h2>Le sobran · ${(o.d || []).length}</h2>${tradeGrid(o.d || [])}
+    <h2>Busca · ${(o.w || []).length}</h2>${tradeGrid(o.w || [])}</div>`;
+}
+
+/* ---------- Komiya: cartas nuevas que aún no están en la lista hecha a mano ---------- */
+function ordenAuto() {
+  const o = (window.ORDEN || {})['tomokazu komiya']; if (!o || o._auto || !DB) return; o._auto = true;
+  const last = o.cartas.reduce((m, e) => (e.d || '') > m ? e.d : m, '');
+  const have = new Set(o.cartas.map(e => e.id).filter(Boolean)), names = new Set(o.cartas.map(e => (e.n || '').toLowerCase()));
+  const rows = q(`SELECT c.card_id, COALESCE(c.name_en, c.name_ja, c.name_local) n, c.name_ja, c.local_id, s.set_id, COALESCE(s.name_en, s.name_ja, s.name_local) sn, s.release_date d
+    FROM cards c JOIN sets s USING(set_id) WHERE c.illustrator LIKE 'Tomokazu Komiya' AND s.lang='ja' AND s.release_date > ? ORDER BY s.release_date, c.local_id`, [last]);
+  let k = o.cartas.reduce((m, e) => Math.max(m, e.o || 0), 0);
+  rows.filter(r => !have.has(r.card_id)).forEach(r => o.cartas.push({ o: ++k, d: r.d, n: r.n, s: r.sn, c: r.set_id, no: r.local_id, id: r.card_id, nueva: 1,
+    note: names.has((r.n || '').toLowerCase()) ? 'Nueva · puede ser una reimpresión' : 'Nueva' }));
 }
 
 /* ---------- lista de venta ---------- */
@@ -1927,12 +2145,14 @@ function viewMore() {
       ${grow('#/stats', 'stats', '#7C5CFA', 'Tu colección en números', 'Ilustrador, Pokémon y año favoritos, tu carta más cara…')}
       ${grow('#/show', 'present', '#2F9BF0', 'Enseñar colección', 'Tus archivadores a pantalla completa, sin precios')}
       ${grow('#/illustrators', 'brush', '#E0752B', 'Ilustradores', pl(n('illustrators'), 'colección que sigues', 'colecciones que sigues'))}
-      ${grow('#/sealed', 'box', '#C79A3A', 'Sellado', pl(n('sealed'), 'producto', 'productos'))}</div></div>
+      ${grow('#/sealed', 'box', '#C79A3A', 'Sellado', pl(n('sealed'), 'producto', 'productos'))}
+      ${grow('#/aperturas', 'present', '#E0752B', 'Aperturas', pl((COL.openings || []).length, 'apertura apuntada', 'aperturas apuntadas') + ' · tu suerte')}</div></div>
     <div class="gsec"><span class="ghead">Comprar y vender</span><div class="group">
       ${grow('#/buy', 'cart', '#2FB57A', 'Qué comprar este mes', 'Reparte tu presupuesto entre lo que te falta')}
       ${grow('#/ofertas', 'tag', '#E3B341', 'Ofertas de sellado', 'Lo que hoy está barato en tiendas españolas')}
       ${grow('#/calendario', 'calendar', '#E2465B', 'Lanzamientos', 'Próximos sets en España, con cuenta atrás')}
       ${grow('#/expenses', 'wallet', '#3A7BD5', 'Gastos', pl(COL.purchases.length, 'compra apuntada', 'compras apuntadas'))}
+      ${grow('#/intercambio', 'cart', '#2F9BF0', 'Lista de intercambio', 'Enlace con tus repetidas y lo que buscas')}
       ${grow('#/sell', 'tag', '#D5527F', 'Lista de venta', pl(n('sell'), 'carta', 'cartas') + ' · repetidas y exportar')}</div></div>
     <div class="gsec"><span class="ghead">App</span><div class="group">
       ${grow('#/settings', 'gear', '#6B7280', 'Ajustes', 'Cuenta, avisos, base de datos y copias')}</div></div></div>`;
@@ -2187,11 +2407,18 @@ async function pushCard() {
     const sub = await currentSub().catch(() => null);
     const perm = Notification.permission;
     body = perm === 'denied' ? '<span class="muted">Has bloqueado las notificaciones de 9Bolsillos. Actívalas en los ajustes del navegador o del móvil y vuelve aquí.</span>'
-      : sub ? `<span class="up" style="font-weight:600">Activados en este dispositivo</span><span class="muted">${Object.values(COL.alerts).filter(a => a.target).length} deseos con precio objetivo.</span><div class="row" style="flex-wrap:wrap"><button class="btn sec" id="pstest">Probar</button><button class="btn warn" id="psoff">Desactivar aquí</button></div>`
+      : sub ? `<span class="up" style="font-weight:600">Activados en este dispositivo</span><span class="muted">${Object.values(COL.alerts).filter(a => a.target).length} deseos con precio objetivo.</span>
+        <div class="col" style="gap:8px"><label class="f">Chollos de sellado (a buen precio en tiendas)<select id="pschol"><option value="all" ${(COL.chollos || 'all') === 'all' ? 'selected' : ''}>Avisarme de todos</option><option value="marked" ${COL.chollos === 'marked' ? 'selected' : ''}>Solo de los productos que marque</option><option value="off" ${COL.chollos === 'off' ? 'selected' : ''}>No avisar</option></select></label>
+        <label class="row" style="gap:8px;align-items:center"><input type="checkbox" id="psweek" ${COL.weeklyOff ? '' : 'checked'}> <span>Resumen de la semana (domingos)</span></label>
+        <label class="row" style="gap:8px;align-items:center"><input type="checkbox" id="pskom" ${COL.komiyaOff ? '' : 'checked'}> <span>Cartas nuevas de Komiya</span></label></div>
+        <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="pstest">Probar</button><button class="btn warn" id="psoff">Desactivar aquí</button></div>`
       : '<div class="row"><button class="btn" id="pson">Activar avisos en este dispositivo</button></div>';
   }
   el.innerHTML = head + body;
   const on = document.getElementById('pson'), off = document.getElementById('psoff'), test = document.getElementById('pstest');
+  const pc = document.getElementById('pschol'); if (pc) pc.onchange = () => { if (pc.value === 'all') delete COL.chollos; else COL.chollos = pc.value; saveCol(); toast('Guardado'); };
+  const pw = document.getElementById('psweek'); if (pw) pw.onchange = () => { if (pw.checked) delete COL.weeklyOff; else COL.weeklyOff = true; saveCol(); };
+  const pk = document.getElementById('pskom'); if (pk) pk.onchange = () => { if (pk.checked) delete COL.komiyaOff; else COL.komiyaOff = true; saveCol(); };
   if (on) on.onclick = async () => {
     try {
       if (await Notification.requestPermission() !== 'granted') { toast('Sin permiso para notificaciones'); return pushCard(); }
@@ -2246,9 +2473,10 @@ function wireSync(rerender) {
 /* ---------- router ---------- */
 function route() {
   if (!DB) return;
+  ordenAuto();
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   const [, a, b] = h.split('/');
-  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', scan: 'search', dex: 'sets', stats: 'more', calendario: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more', ofertas: 'more', envios: 'more' }[a || ''] || 'home';
+  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', scan: 'search', dex: 'sets', stats: 'more', calendario: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more', ofertas: 'more', envios: 'more', abrir: 'more', aperturas: 'more', intercambio: 'more', i: 'more' }[a || ''] || 'home';
   $tabs.querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
   window.scrollTo(0, 0);
   $view.classList.remove('vin'); void $view.offsetWidth; $view.classList.add('vin');   // entrada suave de cada pantalla
@@ -2268,6 +2496,10 @@ function route() {
     else if (a === 'expenses') viewExpenses();
     else if (a === 'sealed') viewSealed();
     else if (a === 'ofertas') viewOffers();
+    else if (a === 'abrir') viewOpen(b);
+    else if (a === 'aperturas') viewOpenings();
+    else if (a === 'intercambio') viewTrade();
+    else if (a === 'i') viewTradeShared(b);
     else if (a === 'envios') viewEnvios();
     else if (a === 'sealeditem') viewSealedItem(b);
     else if (a === 'sell') viewSell();
