@@ -42,6 +42,15 @@ const cmCond = () => { try { return localStorage.getItem('cm_cond') || 'NM'; } c
 const cmFilter = region => `language=${CM_LANG[region] || 4}&minCondition=${CM_COND[cmCond()] || 2}`;
 // Cardmarket solo acepta sin sesión la dirección "bonita" de la carta (…/Singles/Set/Carta-V3-CRI116). 9B la aprende del Atajo.
 const toSafari = u => (/iPad|iPhone|iPod/.test(navigator.userAgent) ? u.replace(/^https:\/\//, 'x-safari-https://') : u);   // en iPhone, abrir en Safari (donde tienes la sesión), no en el navegador interno
+// Producto sellado: …/es/Pokemon/Products/<Categoría>/<Nombre> (dirección que Cardmarket abre sin sesión), solo ofertas en español
+const CM_SEALED_CAT = { 'Pokémon Elite Trainer Boxes': 'Elite-Trainer-Boxes', 'Pokémon Display': 'Booster-Boxes', 'Pokémon Booster': 'Boosters', 'Pokémon Blisters': 'Blisters',
+  'Pokémon Box Set': 'Box-Sets', 'Pokémon Tins': 'Tins', 'Pokémon Theme Decks': 'Theme-Decks', 'Pokémon Trainer Kits': 'Trainer-Kits', 'Pokémon Coins': 'Coins', 'Pokémon Lot': 'Lots' };
+function cmSealedLink(x) {
+  const cat = CM_SEALED_CAT[x.category];
+  const u = cat && x.name ? `https://www.cardmarket.com/es/Pokemon/Products/${cat}/${cmSlugify(x.name)}?language=4`
+    : 'https://www.cardmarket.com/es/Pokemon/Products/Search?searchString=' + encodeURIComponent(x.name || '');
+  return toSafari(u);
+}
 function cmProductLink(cm, region, rev) {
   const saved = (COL.cmurl || {})[cm];
   if (saved) return toSafari(`${saved}?${cmFilter(region)}${rev ? '&isReverseHolo=Y' : ''}`);
@@ -192,7 +201,11 @@ function vPrice(v) {
   if (isRevHolo(v)) return PRICE_MODE === 'low' ? (v.low_holo ?? v.trend_holo ?? v.avg30_holo ?? null) : (v.trend_holo ?? v.avg30_holo ?? v.low_holo ?? null);
   return PRICE_MODE === 'low' ? (v.low ?? v.trend ?? v.avg30 ?? null) : (v.trend ?? v.avg30 ?? v.low ?? null);
 }
-function rPrice(r) { return !r ? null : PRICE_MODE === 'low' ? (r.low ?? r.trend ?? r.avg30 ?? null) : (r.trend ?? r.avg30 ?? r.low ?? null); }
+function rPrice(r) {
+  if (!r) return null;
+  { const x = realOf(r.cm_product_id, false); if (realFresh(x)) return x.p; }
+  return PRICE_MODE === 'low' ? (r.low ?? r.trend ?? r.avg30 ?? null) : (r.trend ?? r.avg30 ?? r.low ?? null);
+}
 let HAS_FOIL = false, HAS_EXTRA = false;
 const VSQL_ = () => `SELECT v.card_id, v.cm_product_id, v.variant, v.subtype, v.stamp, v.ambiguous,${HAS_FOIL ? ' v.foil, v.langs,' : ''}
   p.low, p.trend, p.avg, p.avg1, p.avg7, p.avg30, p.low_holo, p.trend_holo, p.avg7_holo, p.avg30_holo
@@ -767,15 +780,16 @@ function viewSealedItem(id) {
   const e = COL.sealed[id], p = rPrice(x);
   const h = historyFor([+id]).filter(r => r.trend_c != null).map(r => [r.day, r.trend_c / 100]);
   const gain = e && e.buy != null && p != null ? (p - e.buy) * (e.qty || 1) : null;
-  const cm = 'https://www.cardmarket.com/es/Pokemon/Products/Search?searchString=' + encodeURIComponent(x.name);
+  const cm = cmSealedLink(x), rl = realOf(+id, false);
   $view.innerHTML = `<div class="stack">
     <div class="row"><a href="${COL.sealed[id] ? (setsFilter === 'sealed' ? '#/sets' : '#/sealed') : x.set_id ? '#/set/' + encodeURIComponent(x.set_id) : '#/sealed'}" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><span class="muted">${esc(x.set_name || '')} · ${esc(SEALED_LABEL[x.category] || x.category)}</span></div>
     <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
       <div class="col" style="gap:8px;align-items:flex-start"><div class="sdetail">${CUSTOM_IMG['sealed:' + id] ? `<img src="${CUSTOM_IMG['sealed:' + id]}" alt="" style="width:100%;height:100%;object-fit:cover">` : sealedPhoto(x) ? sealedPhotoTag(x, x.ib) : sealedArt(x, x.ib, 'sealart big')}</div>
         <div class="row" style="flex-wrap:wrap;gap:6px;max-width:180px"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG['sealed:' + id] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="simg" accept="image/*" hidden></label>${CUSTOM_IMG['sealed:' + id] ? '<button class="pill" id="sdel" style="font-size:13px">Quitar</button>' : ''}</div></div>
       <div class="col" style="gap:8px;flex:1;min-width:200px"><h1>${esc(x.name)}</h1>
-        <div class="big">${eur(p)}</div><span class="muted">${PRICE_LABEL()}</span>
-        <a target="_blank" rel="noopener" href="${cm}">Ver en Cardmarket ↗</a></div></div>
+        <div class="big">${eur(p)}</div>${realFresh(rl) ? `<span class="realtag">✓ ${esc(realLabel(rl).replace(/ \(.*?\)/, ''))}</span>` : `<span class="muted">${PRICE_LABEL()}</span>`}
+        <div class="actions"><a class="btn cmbtn" id="scmgo" target="_blank" rel="noopener" href="${esc(cm)}">Ver en Cardmarket ${ico('external', 17)}</a>
+          <button class="iconbtn lg" id="srealset" aria-label="Cambiar el precio">${ico('pencil', 20)}</button></div></div></div>
     <div class="card"><table><tr><th>Cardmarket</th><th>Mínimo</th><th>Tendencia</th><th>Media 30 d</th></tr><tr><td>Precio</td><td>${eur(x.low)}</td><td>${eur(x.trend)}</td><td>${eur(x.avg30)}</td></tr></table></div>
     <div class="col" style="gap:8px"><h2>Evolución del precio</h2>${chartSvg(h, 700, 140)}</div>
     <div class="card col" style="gap:12px"><b>${e ? 'Lo tienes' : 'No lo tienes'}</b>
@@ -785,6 +799,8 @@ function viewSealedItem(id) {
         <div class="row"><button class="btn" id="ssave">Guardar</button><button class="btn warn" id="sdelc">Quitar</button></div>` : '<button class="btn" id="sadd">＋ Lo tengo</button>'}</div></div>`;
   const g = k => document.getElementById(k);
   if (g('sadd')) g('sadd').onclick = () => { COL.sealed[id] = { qty: 1 }; saveCol(); viewSealedItem(id); };
+  g('srealset').onclick = () => askRealPrice(+id, false, 'ES', () => viewSealedItem(id));
+  g('scmgo').addEventListener('click', () => armAskReal(+id, false, 'ES'));
   if (g('ssave')) g('ssave').onclick = () => { COL.sealed[id].qty = Math.max(1, parseInt(g('sq').value, 10) || 1); COL.sealed[id].buy = parseNum(g('sb').value); saveCol(); toast('Guardado'); viewSealedItem(id); };
   if (g('sdelc')) g('sdelc').onclick = () => { delete COL.sealed[id]; saveCol(); viewSealedItem(id); };
   if (g('simg')) g('simg').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; const u = await resizeImage(f); CUSTOM_IMG['sealed:' + id] = u; await idbPut('img:sealed:' + id, u); imgsDirty = true; saveCol(); viewSealedItem(id); };
