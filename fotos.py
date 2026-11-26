@@ -16,14 +16,22 @@ CH_MANUAL = {"SV-P": "svp_ja", "M-P": "mp_ja", "S-P": "swshp_ja", "SM-P": "smp_j
              "DP-P": "dpp_ja", "DPt-P": "ptp_ja", "L-P": "lp_ja", "ADV-P": "advp_ja", "PCG-P": "pcgp_ja"}
 
 
-def get(url, tries=4):
+class Limite(Exception):
+    pass
+
+
+def get(url, tries=3):
     for i in range(tries):
         try:
             return json.load(urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=40))
         except Exception as e:
             err = e
-            # 429 = vamos demasiado rápido: se espera de verdad antes de volver a preguntar
-            time.sleep(45 * (i + 1) if getattr(e, "code", 0) == 429 else 3 * (i + 1))
+            if getattr(e, "code", 0) == 429:
+                if i:  # segundo aviso: por hoy no se insiste (mañana se sigue desde aquí)
+                    raise Limite(url)
+                time.sleep(60)
+            else:
+                time.sleep(3 * (i + 1))
     raise err
 
 
@@ -86,6 +94,12 @@ def main():
     print(f"TCGdex: {total_falta} cartas sin imagen en {len(falta)} sets")
 
     out, informe = {}, {"sets": {}}
+    # Lo que ya encontramos otros días se conserva: solo se pregunta por las cartas que siguen sin foto
+    for sid, locs in falta.items():
+        for l in locs:
+            if prev.get(f"{sid}-{l}"):
+                out[f"{sid}-{l}"] = prev[f"{sid}-{l}"]
+    pendientes = {sid: [l for l in locs if f"{sid}-{l}" not in out] for sid, locs in falta.items()}
     def casar(sid, locs, by_num, by_nom):
         """Por número; si no cuadra, por nombre cuando solo hay una carta con ese nombre."""
         res = {}
@@ -125,8 +139,11 @@ def main():
             ch[lang] = get(f"https://www.collectholo.com/api/sets?lang={lang}").get("sets", [])
         except Exception as e:
             print("CollectHolo no disponible:", lang, e); ch[lang] = []
+    parar = False
     for s in sets:
-        locs = falta.get(s["id"])
+        if parar:
+            break
+        locs = pendientes.get(s["id"])
         if not locs:
             continue
         lang = "es" if s["region"] == "int" else "ja"
@@ -143,11 +160,13 @@ def main():
             continue
         try:
             by, nom = binder(x["id"])
+        except Limite:
+            print("CollectHolo pide ir más despacio: se sigue mañana"); parar = True; continue
         except Exception as e:
             print("CollectHolo sin cartas de", x["id"], e); continue
         n = poner(s["id"], casar(s["id"], locs, by, nom), "collectholo:" + x["id"])
         print(f"  {s['id']:>12} → CollectHolo {x['id']}: {n}/{len(locs)}")
-        time.sleep(2.5)
+        time.sleep(4)
 
     # 3) pokemontcg.io: cartas internacionales que aún faltan (misma ilustración, en inglés)
     try:
@@ -157,7 +176,7 @@ def main():
     for s in sets:
         if s["region"] != "int":
             continue
-        locs = [l for l in falta.get(s["id"], []) if f"{s['id']}-{l}" not in out]
+        locs = [l for l in pendientes.get(s["id"], []) if f"{s['id']}-{l}" not in out]
         if not locs or not pt:
             continue
         en = norm(s["en"])
