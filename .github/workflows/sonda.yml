@@ -13,7 +13,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release download datos --pattern 9bolsillos.db
-          python3 tiendas.py --db 9bolsillos.db --out tiendas.json --informe tiendas_informe.json 2>&1 | tee tiendas.log
+          python3 eci.py
       - run: |
           git config user.name sonda && git config user.email sonda@users.noreply.github.com
-          git add -f tiendas.json tiendas_informe.json tiendas.log && git commit -m "Informe [skip ci]" && git push
+          git add -f eci.json && git commit -m "Informe [skip ci]" && git push
