@@ -1,0 +1,1307 @@
+{
+ "metamorphcenter.com": {
+  "meta": {
+   "name": "Metamorph Center",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://metamorphcenter.com",
+   "myshopify_domain": "metamorph-center.myshopify.com"
+  },
+  "n": 250,
+  "poke": [
+   [
+    "[ DAÑADA ] ETB Dominio Delta - Español",
+    "59.95",
+    false
+   ],
+   [
+    "ETB Dominio Delta - Español",
+    "64.95",
+    false
+   ],
+   [
+    "[ DAÑADA ] ETB Destined Rivals - Inglés",
+    "120.00",
+    false
+   ],
+   [
+    "Sobre Fusion World ST01 Story Booster 01 - Japonés",
+    "7.00",
+    true
+   ],
+   [
+    "ETB Destined Rivals - Inglés",
+    "125.00",
+    false
+   ],
+   [
+    "Gift Bundle The Hobbit - Inglés",
+    "99.95",
+    true
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "cardzone.es": {
+  "meta": {
+   "name": "CardZone",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://cardzone.es",
+   "myshopify_domain": "pokepacks-shop.myshopify.com"
+  },
+  "n": 250,
+  "poke": [
+   [
+    "Mega Box NBA Basketball Flagship 2026/27 - Topps",
+    "69.95",
+    true
+   ],
+   [
+    "Fat Pack NBA Basketball Flagship Temp 2026/27 - Topps",
+    "7.95",
+    true
+   ],
+   [
+    "Hanger Box NBA Basketball Flagship Temp 2026/27 - Topps",
+    "19.95",
+    true
+   ],
+   [
+    "Value Box NBA Basketball Flagship 2026/27 - Topps",
+    "35.95",
+    true
+   ],
+   [
+    "Blister con Moneda Escarlata y Purpura - Español",
+    "6.95",
+    true
+   ],
+   [
+    "Lata PokeBall Best of 2021 - Español",
+    "22.95",
+    true
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "iberiancollect.com": {
+  "meta": {
+   "name": "Iberian Collect",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://iberiancollect.com",
+   "myshopify_domain": "0z1yz4-mw.myshopify.com"
+  },
+  "n": 170,
+  "poke": [
+   [
+    "Booster Box Puños Fluidos (Flowing Fists), Español ( Próximamente )",
+    "189.99",
+    false
+   ],
+   [
+    "Protector Acrílico para Booster Box One Piece Inglés ( Próximamente )",
+    "13.50",
+    false
+   ],
+   [
+    "Protector Acrílico para Booster Box Japonesa de Expansión Especial ( Próximamente )",
+    "12.99",
+    false
+   ],
+   [
+    "Protector Acrílico para Booster Box Japonesa ( Próximamente )",
+    "12.99",
+    false
+   ],
+   [
+    "Booster Box Evolving Skies Inglés sellada",
+    "1999.90",
+    false
+   ],
+   [
+    "Booster Box Fusion Strike , Inglés , sellada",
+    "899.99",
+    true
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Allow: /products/"
+  ]
+ },
+ "tcg-collection.com": {
+  "meta": {
+   "name": "TCG-Collection",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://tcg-collection.com",
+   "myshopify_domain": "cwpzzf-p9.myshopify.com"
+  },
+  "n": 111,
+  "poke": [
+   [
+    "LATA MEGA-CLEFABLE",
+    "31.99",
+    true
+   ],
+   [
+    "LATA MEGA-GENGAR EX",
+    "31.99",
+    true
+   ],
+   [
+    "Mini Lata Pokémon Ciudad Luminalia (Español)",
+    "12.99",
+    true
+   ],
+   [
+    "Caja Entrenador Élite Pokémon Caos Creciente (Español)",
+    "60.00",
+    true
+   ],
+   [
+    "CASE 10 LATAS HEROES ASCENDENTES",
+    "150.00",
+    false
+   ],
+   [
+    "X2 CAJA DE ENTRENADOR ELITE FUEGOS FANTASMALES (ESP)",
+    "119.00",
+    false
+   ]
+  ],
+  "robots_products": [
+   "sitemap: https://tcg-collection.com/sitemap_products_1.xml?from=9320212332872&to=9965560758600",
+   "sitemap: https://tcg-collection.com/en/sitemap_products_1.xml?from=9320212332872&to=9965560758600",
+   "User-agent: *",
+   "Disallow: /recommendations/products",
+   "Disallow: /*/recommendations/products",
+   "Disallow: /products/*-[a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9]-remote",
+   "Disallow: /*/products/*-[a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9]-remote",
+   "Disallow: /collections/*/products/*-[a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9]-remote"
+  ]
+ },
+ "centraltcg.com": {
+  "meta": {
+   "name": "Central TCG",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://centraltcg.com",
+   "myshopify_domain": "75pnb0-yn.myshopify.com"
+  },
+  "n": 31,
+  "poke": [
+   [
+    "Lata Megapotencia Pokémon (Aleatoria)",
+    "34.99",
+    true
+   ],
+   [
+    "Caja de Entrenador Élite Pokémon TCG: Megaevolución – Oscuridad Absoluta (Español)",
+    "69.99",
+    true
+   ],
+   [
+    "Pokémon TCG Mega Evolution: Pitch Black – Elite Trainer Box (ETB) – Inglés",
+    "89.99",
+    true
+   ],
+   [
+    "Caja Pokémon 151 SV2a Booster Box (Coreana)",
+    "159.99",
+    false
+   ],
+   [
+    "ETB Fuegos Fantasmales (ES) – Elite Trainer Box",
+    "69.99",
+    false
+   ],
+   [
+    "Caja Nihil Zero M3 (ムニキスゼロ) Booster Box JP",
+    "99.99",
+    false
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "pokezilla.com": {
+  "meta": {
+   "name": "Pokezilla",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://pokezilla.com",
+   "myshopify_domain": "pbx1y3-w2.myshopify.com"
+  },
+  "n": 223,
+  "poke": [
+   [
+    "Pokemon TCG: Flowing Fists Booster Box ( 36 Packs) - PREVENTA",
+    "294.95",
+    false
+   ],
+   [
+    "Pokémon TCG: 30 Flowing Fists Booster Bundle (6 packs) - PREVENTA",
+    "49.95",
+    true
+   ],
+   [
+    "Mega Evolutions - Aura Seeker Japanese Booster Box M7 - PREVENTA",
+    "179.95",
+    true
+   ],
+   [
+    "Pokémon TCG: Prismatic Evolutions Pokémon Booster Bundle (Display 10 unidades) - Sellado",
+    "1499.95",
+    true
+   ],
+   [
+    "Pokémon TCG: Mega Evolution-Astral Radiance Booster Display Box (36 Packs)",
+    "289.95",
+    true
+   ],
+   [
+    "Pokémon TCG: 30 Delta Reign Booster Bundle (6 packs)",
+    "44.95",
+    false
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "rezatcg.es": {
+  "meta_err": "HTTP Error 404: Not Found",
+  "pj_err": "HTTP Error 404: Not Found",
+  "robots_products": [
+   "User-agent: *"
+  ]
+ },
+ "allintcg.com": {
+  "meta": {
+   "name": "AllinTCG",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://allintcg.com",
+   "myshopify_domain": "fpvs0e-3j.myshopify.com"
+  },
+  "n": 81,
+  "poke": [
+   [
+    "Booster Box - Aura Seeker [JP]",
+    "89.95",
+    true
+   ],
+   [
+    "Lata - Pokeball 2025 [ESP]",
+    "119.95",
+    false
+   ],
+   [
+    "Display (36 Sobres) - Escarlata & Purpura [ESP]",
+    "219.95",
+    true
+   ],
+   [
+    "Booster Pack - Juntos de Aventuras [ESP]",
+    "5.95",
+    true
+   ],
+   [
+    "Sleeved Booster Pack - Caos Creciente [ESP]",
+    "6.50",
+    true
+   ],
+   [
+    "Booster Bundle - 30th Anniversary [ESP]",
+    "69.95",
+    false
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "allintcg.es": {
+  "meta_err": "<urlopen error [Errno -2] Name or service not known>",
+  "pj_err": "<urlopen error [Errno -2] Name or service not known>",
+  "robots_err": "<urlopen error [Errno -2] Name or service not known>"
+ },
+ "battledeck.es": {
+  "meta_err": "HTTP Error 404: Not Found",
+  "pj_err": "HTTP Error 404: Not Found",
+  "robots_products": [
+   "User-Agent: *"
+  ]
+ },
+ "checollect.com": {
+  "meta_err": "<urlopen error [Errno -2] Name or service not known>",
+  "pj_err": "<urlopen error [Errno -2] Name or service not known>",
+  "robots_err": "<urlopen error [Errno -2] Name or service not known>"
+ },
+ "checollect.es": {
+  "meta_err": "HTTP Error 404: Not Found",
+  "pj_err": "HTTP Error 404: Not Found",
+  "robots_err": "HTTP Error 404: Not Found"
+ },
+ "factorycards.es": {
+  "meta_err": "<urlopen error [Errno -2] Name or service not known>",
+  "pj_err": "<urlopen error [Errno -2] Name or service not known>",
+  "robots_err": "<urlopen error [Errno -2] Name or service not known>"
+ },
+ "flashstore.es": {
+  "meta_err": "HTTP Error 404: Not Found",
+  "pj_err": "HTTP Error 404: Not Found",
+  "robots_products": [
+   "User-agent: *",
+   "User-agent: *"
+  ]
+ },
+ "geekkaos.com": {
+  "meta_err": "HTTP Error 403: Forbidden",
+  "pj_err": "HTTP Error 403: Forbidden",
+  "robots_products": [
+   "User-agent: *"
+  ]
+ },
+ "grillecards.com": {
+  "meta": {
+   "name": "Grillecards",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://grillecards.com",
+   "myshopify_domain": "a0dd8j-30.myshopify.com"
+  },
+  "n": 165,
+  "poke": [
+   [
+    "Lata Mega Forces Tins: Mega Zeraora ex (Inglés)",
+    "34.95",
+    true
+   ],
+   [
+    "Lata Mega Forces Tins: Mega Dragonite ex (Inglés)",
+    "34.95",
+    true
+   ],
+   [
+    "Lata Mega Forces Tins: Mega Darkrai ex (Inglés)",
+    "34.95",
+    true
+   ],
+   [
+    "Booster Bundle Dominio Delta (Español)",
+    "34.95",
+    false
+   ],
+   [
+    "ETB Dominio Delta (Español)",
+    "59.95",
+    false
+   ],
+   [
+    "Riftbound Radiance Booster Box (Inglés)",
+    "124.95",
+    false
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "grillecards.es": {
+  "meta_err": "<urlopen error [Errno -2] Name or service not known>",
+  "pj_err": "<urlopen error [Errno -2] Name or service not known>",
+  "robots_err": "<urlopen error [Errno -2] Name or service not known>"
+ },
+ "manavortex.es": {
+  "meta_err": "HTTP Error 404: Not Found",
+  "pj_err": "HTTP Error 404: Not Found",
+  "robots_products": [
+   "User-agent: *"
+  ]
+ },
+ "manavortex.com": {
+  "meta_err": "HTTP Error 404: Not Found",
+  "pj_err": "HTTP Error 404: Not Found",
+  "robots_products": [
+   "User-agent: *"
+  ]
+ },
+ "pokedealtcg.com": {
+  "meta_err": "Expecting value: line 1 column 1 (char 0)",
+  "pj_err": "Expecting value: line 1 column 1 (char 0)",
+  "robots_products": [
+   "{\"imports\":{\"@wordpress/interactivity\":\"https://pokedealtcg.store/wp-includes/js/dist/script-modules/interactivity/index.min.js?ver=6a43cba92ed701f32cd9\",\"@woocommerce/stores/store-notices\":\"https://pokedealtcg.store/wp-content/plugins/woocommerce/assets/client/blocks/@woocommerce/stores/store-notices.js?ver=c1eae8d5e518e3fbcf40\",\"@woocommerce/stores/woocommerce/cart\":\"https://pokedealtcg.store/wp-content/plugins/woocommerce/assets/client/blocks/@woocommerce/stores/woocommerce/cart.js?ver=5c8d159af47606787178\",\"@woocommerce/stores/woocommerce/products\":\"https://pokedealtcg.store/wp-content/plugins/woocommerce/assets/client/blocks/@woocommerce/stores/woocommerce/products.js?ver=d2328963c7e9ed84708e\",\"@wordpress/a11y\":\"https://pokedealtcg.store/wp-includes/js/dist/script-modules/a11y/index.min.js?ver=1c371cb517a97cdbcb9f\"}}",
+   "<link rel=\"modulepreload\" href=\"https://pokedealtcg.store/wp-content/plugins/woocommerce/assets/client/blocks/@woocommerce/stores/woocommerce/products.js?ver=d2328963c7e9ed84708e\" id=\"@woocommerce/stores/woocommerce/products-js-modulepreload\">",
+   "\t\t\t\t\t<h2 class=\"elementor-heading-title elementor-size-default\">Our Products</h2>\t\t\t\t</div>",
+   "\t\t\t\t\t\t\t<div class=\"elementor-shortcode\"><div class=\"woocommerce columns-4 \"><ul class=\"products columns-4\">",
+   "{\"config\":{\"woocommerce\":{\"nonOptimisticProperties\":[],\"currency\":{\"code\":\"EUR\",\"precision\":2,\"symbol\":\"€\",\"symbolPosition\":\"right_space\",\"decimalSeparator\":\",\",\"thousandSeparator\":\".\",\"priceFormat\":\"%2$s %1$s\"},\"locale\":{\"siteLocale\":\"en_US\",\"userLocale\":\"en_US\",\"weekdaysShort\":[\"Sun\",\"Mon\",\"Tue\",\"Wed\",\"Thu\",\"Fri\",\"Sat\"]},\"placeholderImgSrc\":\"https://pokedealtcg.store/wp-content/uploads/woocommerce-placeholder.webp\"},\"woocommerce/mini-cart\":{\"displayCartPriceIncludingTax\":false,\"onCartClickBehaviour\":\"open_drawer\",\"checkoutUrl\":\"https://pokedealtcg.store/pedido/\",\"buttonAriaLabelTemplate\":\"Number of items in the cart: %d\"},\"woocommerce/mini-cart-title-items-counter-block\":{\"itemsInCartTextTemplate\":\"(items: %d)\"},\"woocommerce/mini-cart-products-table-block\":{\"reduceQuantityLabel\":\"Reduce quantity of %s\",\"increaseQuantityLabel\":\"Increase quantity of %s\",\"quantityDescriptionLabel\":\"Quantity of %s in your cart.\",\"removeFromCartLabel\":\"Remove %s from cart\"}},\"state\":{\"woocommerce\":{\"cart\":{\"items\":[],\"coupons\":[],\"fees\":[],\"totals\":{\"total_items\":\"0\",\"total_items_tax\":\"0\",\"total_fees\":\"0\",\"total_fees_tax\":\"0\",\"total_discount\":\"0\",\"total_discount_tax\":\"0\",\"total_shipping\":null,\"total_shipping_tax\":null,\"total_price\":\"0\",\"total_tax\":\"0\",\"tax_lines\":[],\"currency_code\":\"EUR\",\"currency_symbol\":\"€\",\"currency_minor_unit\":2,\"currency_decimal_separator\":\",\",\"currency_thousand_separator\":\".\",\"currency_prefix\":\"\",\"currency_suffix\":\" €\"},\"shipping_address\":{\"first_name\":\"\",\"last_name\":\"\",\"company\":\"\",\"address_1\":\"\",\"address_2\":\"\",\"city\":\"\",\"state\":\"M\",\"postcode\":\"\",\"country\":\"ES\",\"phone\":\"\"},\"billing_address\":{\"first_name\":\"\",\"last_name\":\"\",\"company\":\"\",\"address_1\":\"\",\"address_2\":\"\",\"city\":\"\",\"state\":\"M\",\"postcode\":\"\",\"country\":\"ES\",\"email\":\"\",\"phone\":\"\"},\"needs_payment\":false,\"needs_shipping\":false,\"payment_requirements\":[\"products\"],\"has_calculated_shipping\":false,\"shipping_rates\":[],\"items_count\":0,\"items_weight\":0,\"cross_sells\":[],\"errors\":[],\"payment_methods\":[\"redsys\",\"redsys_insite\"],\"extensions\":{}},\"noticeId\":\"\",\"restUrl\":\"https://pokedealtcg.store/wp-json/\"},\"woocommerce/mini-cart\":{\"isOpen\":false,\"totalItemsInCart\":0,\"shouldShowTaxLabel\":false,\"badgeIsVisible\":false,\"formattedSubtotal\":\"0,00 €\",\"buttonAriaLabel\":{},\"productCountColor\":\"\"},\"woocommerce/mini-cart-title-items-counter-block\":{\"itemsInCartText\":\"(items: 0)\"},\"woocommerce/mini-cart-products-table-block\":{\"cartItem\":{}},\"woocommerce/mini-cart-footer-block\":{\"formattedSubtotal\":\"0,00 €\"},\"core/router\":{\"url\":\"https://pokedealtcg.store/\"}},\"derivedStateClosures\":{\"woocommerce/mini-cart\":[\"state.buttonAriaLabel\"]}}",
+   "\t\t\t\t\t<div data-block-name=\"woocommerce/mini-cart-products-table-block\" class=\"wc-block-mini-cart__products-table wp-block-woocommerce-mini-cart-products-table-block\" data-wp-interactive=\"woocommerce/mini-cart-products-table-block\">",
+   "\t\t\t\t\t\tProducts in cart\t\t\t\t\t</h2>"
+  ]
+ },
+ "pokedealtcg.es": {
+  "meta": {
+   "name": "POKEDEALTCG",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://www.pokedealtcg.es",
+   "myshopify_domain": "08ebtf-gb.myshopify.com"
+  },
+  "n": 250,
+  "poke": [
+   [
+    "DISPLAY BOOSTER BUNLDLES 151",
+    "1999.00",
+    false
+   ],
+   [
+    "BOOSTER BOX 18 SOBRES PITCH BLACK",
+    "94.95",
+    false
+   ],
+   [
+    "BOOSTER BOX OBSIDIAN FLAMES (36 SOBRES)",
+    "224.95",
+    true
+   ],
+   [
+    "BOOSTER BUNDLE DELTA REIGN",
+    "44.95",
+    true
+   ],
+   [
+    "BOOSTER BOX 18 SOBRES DELTA REING PRE-ORDER",
+    "84.90",
+    false
+   ],
+   [
+    "BOOSTER BOX 18 SOBRES CHAOS RISING",
+    "109.95",
+    true
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "pokemillon.com": {
+  "meta": {
+   "name": "POKEMILLON - La Tienda Pokémon",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://www.pokemillon.com",
+   "myshopify_domain": "pokemill0n.myshopify.com"
+  },
+  "n": 250,
+  "poke": [
+   [
+    "ETB Puños Fluidos | Élite Flowing Fists Pokémon Center",
+    "189.90",
+    false
+   ],
+   [
+    "Mini Lata Wonderful Waters | Aguas Hermosas",
+    "10.90",
+    false
+   ],
+   [
+    "Booster Bundle 6 Sobres Puños Fluidos | Flowing Fists",
+    "29.90",
+    false
+   ],
+   [
+    "ETB Puños Fluidos | Élite Flowing Fists",
+    "69.90",
+    true
+   ],
+   [
+    "Weiss Schwarz | Booster Box 10 GIRLS und PANZER",
+    "39.90",
+    true
+   ],
+   [
+    "Weiss Schwarz Blau | Booster Box 10 Sobres Shojo Kageki Revue Starlight",
+    "32.90",
+    true
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "pokemillon.es": {
+  "meta": {
+   "name": "POKEMILLON - La Tienda Pokémon",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://www.pokemillon.com",
+   "myshopify_domain": "pokemill0n.myshopify.com"
+  },
+  "n": 250,
+  "poke": [
+   [
+    "ETB Puños Fluidos | Élite Flowing Fists Pokémon Center",
+    "189.90",
+    false
+   ],
+   [
+    "Mini Lata Wonderful Waters | Aguas Hermosas",
+    "10.90",
+    false
+   ],
+   [
+    "Booster Bundle 6 Sobres Puños Fluidos | Flowing Fists",
+    "29.90",
+    false
+   ],
+   [
+    "ETB Puños Fluidos | Élite Flowing Fists",
+    "69.90",
+    true
+   ],
+   [
+    "Weiss Schwarz | Booster Box 10 GIRLS und PANZER",
+    "39.90",
+    true
+   ],
+   [
+    "Weiss Schwarz Blau | Booster Box 10 Sobres Shojo Kageki Revue Starlight",
+    "32.90",
+    true
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "ryucards.com": {
+  "meta": {
+   "name": "Ryu Cards",
+   "currency": "EUR",
+   "country": "NL",
+   "url": "https://ryucards.com",
+   "myshopify_domain": "vr0eph-m1.myshopify.com"
+  },
+  "n": 20,
+  "poke": [],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "ryucards.es": {
+  "meta": {
+   "name": "RyuCards",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://www.ryucardstcg.com",
+   "myshopify_domain": "mnu5ik-00.myshopify.com"
+  },
+  "n": 250,
+  "poke": [
+   [
+    "Protector Acrílico Booster Bundle",
+    "16.90",
+    true
+   ],
+   [
+    "Gem Pack Vol. 7 Booster Box",
+    "52.90",
+    true
+   ],
+   [
+    "Storm Emeralda Booster Box Japonés SIN PLÁSTICO",
+    "69.90",
+    true
+   ],
+   [
+    "Booster Box 30th Celebration",
+    "154.90",
+    false
+   ],
+   [
+    "Mega Brave Booster Box Japonés SIN PLÁSTICO",
+    "64.90",
+    true
+   ],
+   [
+    "Gem Pack Vol. 4 Booster Box",
+    "32.90",
+    true
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "shinyhit.es": {
+  "meta_err": "<urlopen error [Errno -2] Name or service not known>",
+  "pj_err": "<urlopen error [Errno -2] Name or service not known>",
+  "robots_err": "<urlopen error [Errno -2] Name or service not known>"
+ },
+ "shinyhit.com": {
+  "meta_err": "HTTP Error 404: Not Found",
+  "pj_err": "HTTP Error 404: Not Found",
+  "robots_products": [
+   "User-agent: *",
+   "User-agent: *",
+   "User-agent: *",
+   "User-agent: *"
+  ]
+ },
+ "todohits.com": {
+  "meta": {
+   "name": "TodoHits",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://todohits.com",
+   "myshopify_domain": "1fm1u6-d0.myshopify.com"
+  },
+  "n": 250,
+  "poke": [
+   [
+    "Booster Box Delta Reign | POKÉMON | Inglés",
+    "207.99",
+    true
+   ],
+   [
+    "Booster Bundle Delta Reign | POKÉMON | Inglés",
+    "44.99",
+    true
+   ],
+   [
+    "Booster Box FB11 | Brightness of Hope | Fusion World | DRAGON BALL | Inglés",
+    "139.99",
+    false
+   ],
+   [
+    "OP-18 Booster Box | ONE PIECE | The Dominance of God | Inglés",
+    "164.99",
+    false
+   ],
+   [
+    "Topps  NBA Basketball Flagship Mega Box 2026/27",
+    "62.99",
+    true
+   ],
+   [
+    "ETB Delta Reign | Elite Trainer Box | POKÉMON | Inglés",
+    "84.99",
+    false
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "todohits.es": {
+  "meta": {
+   "name": "BigFanStore",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://bigfanstore.com",
+   "myshopify_domain": "dhdurx-nf.myshopify.com"
+  },
+  "n": 250,
+  "poke": [],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "unsobremas.com": {
+  "meta": {
+   "name": "UNSOBREMAS®",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://unsobremas.com",
+   "myshopify_domain": "kz0c7r-0u.myshopify.com"
+  },
+  "n": 236,
+  "poke": [
+   [
+    "BOOSTER PACK - DELTA REIGN [EN]",
+    "6.95",
+    true
+   ],
+   [
+    "BOOSTER BOX - DELTA REIGN [EN]",
+    "209.95",
+    false
+   ],
+   [
+    "BOOSTER BUNDLE - DELTA REIGN [EN]",
+    "44.95",
+    true
+   ],
+   [
+    "BOOSTER PACK - DOMINIO DELTA [ES]",
+    "5.95",
+    true
+   ],
+   [
+    "HALF BOOSTER BOX - DOMINIO DELTA [ES]",
+    "94.95",
+    true
+   ],
+   [
+    "BOOSTER BOX - DOMINIO DELTA [ES]",
+    "199.95",
+    false
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "unsobremas.es": {
+  "meta_err": "<urlopen error [Errno -5] No address associated with hostname>",
+  "pj_err": "<urlopen error [Errno -5] No address associated with hostname>",
+  "robots_err": "<urlopen error [Errno -5] No address associated with hostnam"
+ },
+ "tcglevel.com": {
+  "meta": {
+   "name": "TCG Level",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://tcglevel.com",
+   "myshopify_domain": "tcglevel.myshopify.com"
+  },
+  "n": 105,
+  "poke": [
+   [
+    "Caja One Piece OP-15 Adventure on KAMI’s Island - 24 sobres (Booster Box)",
+    "79.90",
+    true
+   ],
+   [
+    "Booster Box Pokémon Gem Pack Vol.2 | Chino",
+    "69.90",
+    true
+   ],
+   [
+    "Booster Box EB05 Heroines Edition Vol.2 | Japonés",
+    "107.90",
+    true
+   ],
+   [
+    "Booster Box Pokémon Slim White Flare S-CH | Chino",
+    "36.90",
+    true
+   ],
+   [
+    "Booster Box Pokémon Slim Black Bolt S-CH | Chino",
+    "36.90",
+    true
+   ],
+   [
+    "Booster Box Pokémon Gem Pack Vol.7 | Chino",
+    "41.90",
+    true
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "tcglevel.es": {
+  "meta_err": "HTTP Error 404: Not Found",
+  "pj_err": "HTTP Error 404: Not Found",
+  "robots_err": "HTTP Error 404: Not Found"
+ },
+ "thecardstation.es": {
+  "meta_err": "HTTP Error 404: Not Found",
+  "pj_err": "HTTP Error 404: Not Found",
+  "robots_products": [
+   "User-agent: *"
+  ]
+ },
+ "thecardstation.com": {
+  "meta_err": "HTTP Error 404: Not Found",
+  "pj_err": "HTTP Error 404: Not Found",
+  "robots_err": "HTTP Error 404: Not Found"
+ },
+ "epichitstore.com": {
+  "meta_err": "<urlopen error [SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error (_ss",
+  "pj_err": "<urlopen error [SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error (_ss",
+  "robots_err": "<urlopen error [SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert"
+ },
+ "epichitstore.es": {
+  "meta_err": "HTTP Error 403: Forbidden",
+  "pj_err": "HTTP Error 403: Forbidden",
+  "robots_products": [
+   "User-agent: *"
+  ]
+ },
+ "elbazartcg.com": {
+  "meta": {
+   "name": "ElBazarTCG - Tu Tienda de Cartas Originales TCG Nº 1 en España, Pokemon, One Piece y más!",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://elbazartcg.com",
+   "myshopify_domain": "1jxtbe-hy.myshopify.com"
+  },
+  "n": 148,
+  "poke": [
+   [
+    "Booster Box Vmax Climax(CH)",
+    "96.99",
+    true
+   ],
+   [
+    "Booster Box Detective Conan - CT-P11 Show Time Under the Moonlight (JP)",
+    "74.99",
+    true
+   ],
+   [
+    "Booster Box Jumbo Black Bolt (CH)",
+    "59.99",
+    true
+   ],
+   [
+    "Booster Box Gem Pack Vol.7 (CH)",
+    "42.99",
+    true
+   ],
+   [
+    "Booster Box Jumbo White Flare (CH)",
+    "59.99",
+    true
+   ],
+   [
+    "Booster Box Slim Black Bolt (CH)",
+    "34.99",
+    true
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "elbazartcg.es": {
+  "meta_err": "<urlopen error [Errno -2] Name or service not known>",
+  "pj_err": "<urlopen error [Errno -2] Name or service not known>",
+  "robots_err": "<urlopen error [Errno -2] Name or service not known>"
+ },
+ "darizard9.com": {
+  "meta": {
+   "name": "Darizard9",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://www.darizard9.com",
+   "myshopify_domain": "darizard9.myshopify.com"
+  },
+  "n": 204,
+  "poke": [
+   [
+    "PARTICIPACIÓN APERTURA DIRECTO Topps Stadium Club Basketball 2026 - Hobby Box",
+    "29.99",
+    true
+   ],
+   [
+    "One Piece OP18 The Dominance of God Booster Box",
+    "159.99",
+    false
+   ],
+   [
+    "Bundle Dominio Delta",
+    "39.99",
+    true
+   ],
+   [
+    "Booster Bundle Delta Reign",
+    "42.99",
+    true
+   ],
+   [
+    "Bundle Caos Creciente",
+    "33.99",
+    true
+   ],
+   [
+    "2024-25 Topps Chrome Basketball Blaster Box",
+    "25.99",
+    true
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "darizard9.es": {
+  "meta_err": "<urlopen error [Errno -2] Name or service not known>",
+  "pj_err": "<urlopen error [Errno -2] Name or service not known>",
+  "robots_err": "<urlopen error [Errno -2] Name or service not known>"
+ },
+ "dondino.es": {
+  "meta_err": "HTTP Error 404: Not Found",
+  "pj_err": "HTTP Error 404: Not Found",
+  "robots_products": [
+   "User-agent: *",
+   "User-agent: *"
+  ]
+ },
+ "alfriki.com": {
+  "meta": {
+   "name": "alfriki.com",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://alfriki.com",
+   "myshopify_domain": "912ff8-2.myshopify.com"
+  },
+  "n": 250,
+  "poke": [
+   [
+    "Funko POP! Basketball NBA Giannis Antetokounmpo - 143",
+    "16.99",
+    true
+   ],
+   [
+    "Yu-Gi-Oh! Lata Mega-Pack 2025 - Castellano",
+    "23.99",
+    true
+   ],
+   [
+    "Bundle Gift Edition Marvel Super Heroes Inglés - Magic The Gathering",
+    "89.99",
+    true
+   ],
+   [
+    "Bundle TCG Marvel Super Heroes Inglés - Magic The Gathering",
+    "72.99",
+    true
+   ],
+   [
+    "Jumpstart Booster Display (24 sobres) Marvel Super Heroes Inglés - Magic The Gathering",
+    "149.99",
+    true
+   ],
+   [
+    "Collector Booster Display - Marvel Super Heroes Inglés (12 sobres)",
+    "499.99",
+    true
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "alfriki.es": {
+  "meta_err": "<urlopen error [Errno -2] Name or service not known>",
+  "pj_err": "<urlopen error [Errno -2] Name or service not known>",
+  "robots_err": "<urlopen error [Errno -2] Name or service not known>"
+ },
+ "jjcollection.es": {
+  "meta": {
+   "name": "JJCOLLECTION STORE",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://www.jjcollection.es",
+   "myshopify_domain": "jjcollection-store.myshopify.com"
+  },
+  "n": 223,
+  "poke": [
+   [
+    "Dragon Ball Super Card Game - Booster Box Chromatic Ascension BT32 (Inglés)",
+    "139.98",
+    false
+   ],
+   [
+    "Riftbound League of Legends - Gift of the Rift Bundle (Inglés)",
+    "129.98",
+    true
+   ],
+   [
+    "One Piece Card Game - Booster Box OP-18 Dominance of God (ingles)",
+    "150.00",
+    false
+   ],
+   [
+    "Pokémon TCG - Booster Bundle 30th Celebration (Inglés & Español)",
+    "73.00",
+    false
+   ],
+   [
+    "Riftbound League of Legends - Legacy Booster Box (Inglés)",
+    "124.98",
+    true
+   ],
+   [
+    "Pokémon TCG - Dominio Delta - Booster Bundle (inglés)",
+    "49.98",
+    true
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "sunnystore.es": {
+  "meta": {
+   "name": "SUNNY COLLECTIBLES S.L",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://sunnystore.es",
+   "myshopify_domain": "sunnystore-es.myshopify.com"
+  },
+  "n": 250,
+  "poke": [
+   [
+    "BOOSTER BUNDLE POKEMON DELTA REIGN (INGLÉS)",
+    "44.90",
+    true
+   ],
+   [
+    "BOOSTER BUNDLE POKEMON DOMINIO DELTA (ESPAÑOL)",
+    "39.90",
+    true
+   ],
+   [
+    "ETB POKEMON DOMINIO DELTA ELITE TRAINER BOX (ESPAÑOL)",
+    "69.90",
+    true
+   ],
+   [
+    "MINI LATA POKEMON 30 ANIVERSARIO CELEBRACIONES (ESPAÑOL)",
+    "19.90",
+    true
+   ],
+   [
+    "MINI LATA POKEMON 30 ANIVERSARIO CELEBRACIONES (INGLÉS)",
+    "24.90",
+    true
+   ],
+   [
+    "ETB POKEMON TCG DELTA REIGN ELITE TRAINER BOX (INGLÉS)",
+    "84.90",
+    true
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "Allow: /products/account",
+   "Allow: /products/orders",
+   "Allow: /products/checkout",
+   "Allow: /*/products/account",
+   "Allow: /*/products/orders",
+   "Allow: /*/products/checkout",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "chewecenter.com": {
+  "meta_err": "Expecting value: line 1 column 1 (char 0)",
+  "pj_err": "Expecting value: line 1 column 1 (char 0)",
+  "robots_products": [
+   "User-agent: *",
+   "User-agent: *"
+  ]
+ },
+ "chewecenter.es": {
+  "meta_err": "Expecting value: line 1 column 1 (char 0)",
+  "pj_err": "Expecting value: line 1 column 1 (char 0)",
+  "robots_products": [
+   "User-agent: *",
+   "User-agent: *"
+  ]
+ },
+ "frikidenacimiento.com": {
+  "meta_err": "Expecting value: line 1 column 1 (char 0)",
+  "pj_err": "Expecting value: line 1 column 1 (char 0)",
+  "robots_products": []
+ },
+ "elrincondelgachapon.com": {
+  "meta_err": "<urlopen error [Errno -2] Name or service not known>",
+  "pj_err": "<urlopen error [Errno -2] Name or service not known>",
+  "robots_err": "<urlopen error [Errno -2] Name or service not known>"
+ },
+ "toyplanet.com": {
+  "meta": {
+   "name": "Toy Planet",
+   "currency": "EUR",
+   "country": "ES",
+   "url": "https://www.toyplanet.com",
+   "myshopify_domain": "toy-planet-shop.myshopify.com"
+  },
+  "n": 250,
+  "poke": [
+   [
+    "Pokémon Megaevolución Dominio Delta Caja Entrenador Élite",
+    "79.99",
+    true
+   ]
+  ],
+  "robots_products": [
+   "User-agent: *",
+   "##SITEMAP PRODUCTS",
+   "Sitemap: https://www.toyplanet.com/sitemap_products_1.xml?from=14749145432387&to=14749485400387",
+   "Sitemap: https://www.toyplanet.com/sitemap_products_2.xml?from=14749485531459&to=14749721231683",
+   "Sitemap: https://www.toyplanet.com/sitemap_products_3.xml?from=14749721297219&to=14749911777603",
+   "Sitemap: https://www.toyplanet.com/sitemap_products_4.xml?from=14749911810371&to=14750138040643",
+   "Sitemap: https://www.toyplanet.com/sitemap_products_5.xml?from=14750138073411&to=14779043021123",
+   "Disallow: /recommendations/products"
+  ]
+ },
+ "dracotienda.com": {
+  "meta_err": "HTTP Error 404: Not Found",
+  "pj_err": "HTTP Error 404: Not Found",
+  "robots_products": [
+   "User-agent: *"
+  ]
+ },
+ "generacionx.es": {
+  "meta_err": "HTTP Error 404: Not Found",
+  "pj_err": "HTTP Error 404: Not Found",
+  "robots_err": "HTTP Error 406: Not Acceptable"
+ },
+ "valhallagames.es": {
+  "meta_err": "<urlopen error [Errno -2] Name or service not known>",
+  "pj_err": "<urlopen error [Errno -2] Name or service not known>",
+  "robots_err": "<urlopen error [Errno -2] Name or service not known>"
+ }
+}
