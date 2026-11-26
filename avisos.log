@@ -1,2 +1,3 @@
-El Corte Inglés: 0 productos de Pokémon JCC · 0 con stock
-Avisos: modo prueba o faltan secretos; no se envía nada.
+/marcas/pokemon/juguetes/ ERR <HTTPError 403: 'Forbidden'>
+/pokemon/juguetes/juegos-de-mesa/ ERR <HTTPError 403: 'Forbidden'>
+/juguetes/kidults/juegos-de-mesa-para-adultos/cartas-coleccionables/ ERR <HTTPError 403: 'Forbidden'>
