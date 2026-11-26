@@ -51,7 +51,7 @@ def tcgcsv(path):
 
 
 def _n(t):
-    return re.sub(r"[^a-z0-9]", "", (t or "").lower())
+    return re.sub(r"[^a-z0-9]", "", re.sub(r"\s*&\s*", " and ", (t or "").lower()))
 
 
 def tcgplayer(nombre_en, fecha, ya):
@@ -62,7 +62,8 @@ def tcgplayer(nombre_en, fecha, ya):
     objetivo = _n(nombre_en)
     if not objetivo:
         return []
-    cands = [g for g in _GRUPOS if _n(re.sub(r"^[A-Z0-9.]+:\s*", "", g.get("name", ""))) == objetivo]
+    # TCGplayer antepone la serie: «SV08: Surging Sparks», «SM - Burning Shadows», «XY - Roaring Skies»
+    cands = [g for g in _GRUPOS if _n(g.get("name", "")).endswith(objetivo)]
     if not cands:
         return []
     def gap(g):

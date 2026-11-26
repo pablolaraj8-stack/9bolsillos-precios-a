@@ -13,21 +13,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release download datos --pattern 9bolsillos.db
-          python3 fotos.py --db 9bolsillos.db --out fotos.json --informe fotos_informe.json 2>&1 | tee fotos.log
+          python3 kom.py
           python3 sellado.py --db 9bolsillos.db --out sellado.json 2>&1 | tee sellado.log
-          mkdir -p muestra && python3 - <<'PY'
-          import json, urllib.request, hashlib, random
-          f = json.load(open("fotos.json")); s = json.load(open("sellado.json"))
-          random.seed(1)
-          urls = random.sample([v for k, v in f.items() if k != "_v"], min(12, len(f) - 1))
-          urls += [x["u"] for k, v in s.items() if k != "_v" for x in v.get("fotos", []) if x.get("en")][:24]
-          for u in urls:
-              try:
-                  d = urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "9Bolsillos/1.0"}), timeout=30).read()
-                  open("muestra/" + hashlib.md5(u.encode()).hexdigest()[:12] + "." + u.split("?")[0].rsplit(".", 1)[-1], "wb").write(d)
-              except Exception as e:
-                  print("fallo", u, e)
-          PY
       - run: |
           git config user.name sonda && git config user.email sonda@users.noreply.github.com
-          git add -f fotos.json fotos_informe.json fotos.log sellado.json sellado.log muestra && git commit -m "Informe [skip ci]" && git push
+          git add -f komiya.json sellado.json sellado.log && git commit -m "Informe [skip ci]" && git push
