@@ -404,8 +404,10 @@ function masterProgress(setId) {
     uniqVariants(vm[c.card_id]).filter(v => !(v && v.stamp) && !hiddenVariant(c, v)).forEach(v => { total++; if (ks.has(vkey(v))) have++; }); });
   return { have, total };
 }
+const setsPills = () => `<div class="pills onerow">${[['es', 'Todos los sets'], ['mine', 'Mis sets'], ['sealed', 'Mi sellado']].map(([k, l]) => `<button class="pill ${setsFilter === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('')}</div>`;
 function viewSets() {
-  if (setsFilter !== 'mine') setsFilter = 'es';
+  if (setsFilter !== 'mine' && setsFilter !== 'sealed') setsFilter = 'es';
+  if (setsFilter === 'sealed') { viewSealed(true); return; }
   const rows = q(`SELECT s.set_id, s.lang, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) name, s.serie, s.release_date,
     (SELECT COUNT(*) FROM cards c WHERE c.set_id = s.set_id) n, (SELECT image_base FROM cards c WHERE c.set_id = s.set_id LIMIT 1) ib
     FROM sets s WHERE n > 0 ORDER BY s.release_date DESC, s.set_id`);
@@ -425,7 +427,7 @@ function viewSets() {
   };
   $view.innerHTML = `<div class="stack"><div class="between"><h1>Colección</h1><a class="pill" style="display:flex;align-items:center" href="#/illustrators">Ilustradores →</a></div>
     <input type="search" id="sq" placeholder="Buscar set…" value="${esc(setsQuery)}">
-    <div class="pills">${[['es', 'Todos los sets'], ['mine', 'Mis sets']].map(([k, l]) => `<button class="pill ${setsFilter === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('')}</div>
+    ${setsPills()}
     <div class="list" id="setlist"></div></div>`;
   document.getElementById('sq').oninput = e => { setsQuery = e.target.value; draw(); };
   $view.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { setsFilter = b.dataset.f; viewSets(); });
@@ -767,7 +769,7 @@ function viewSealedItem(id) {
   const gain = e && e.buy != null && p != null ? (p - e.buy) * (e.qty || 1) : null;
   const cm = 'https://www.cardmarket.com/es/Pokemon/Products/Search?searchString=' + encodeURIComponent(x.name);
   $view.innerHTML = `<div class="stack">
-    <div class="row"><a href="${COL.sealed[id] ? '#/sealed' : x.set_id ? '#/set/' + encodeURIComponent(x.set_id) : '#/sealed'}" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><span class="muted">${esc(x.set_name || '')} · ${esc(SEALED_LABEL[x.category] || x.category)}</span></div>
+    <div class="row"><a href="${COL.sealed[id] ? (setsFilter === 'sealed' ? '#/sets' : '#/sealed') : x.set_id ? '#/set/' + encodeURIComponent(x.set_id) : '#/sealed'}" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><span class="muted">${esc(x.set_name || '')} · ${esc(SEALED_LABEL[x.category] || x.category)}</span></div>
     <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:wrap">
       <div class="col" style="gap:8px;align-items:flex-start"><div class="sdetail">${CUSTOM_IMG['sealed:' + id] ? `<img src="${CUSTOM_IMG['sealed:' + id]}" alt="" style="width:100%;height:100%;object-fit:cover">` : sealedPhoto(x) ? sealedPhotoTag(x, x.ib) : sealedArt(x, x.ib, 'sealart big')}</div>
         <div class="row" style="flex-wrap:wrap;gap:6px;max-width:180px"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG['sealed:' + id] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="simg" accept="image/*" hidden></label>${CUSTOM_IMG['sealed:' + id] ? '<button class="pill" id="sdel" style="font-size:13px">Quitar</button>' : ''}</div></div>
@@ -1423,7 +1425,7 @@ function viewExpenses() {
 }
 
 /* ---------- sellado ---------- */
-function viewSealed() {
+function viewSealed(embed = false) {   // embed: dentro de Colección, en la pestaña «Mi sellado»
   const ids = Object.keys(COL.sealed).map(Number), info = sealedPrices(ids);
   const hist = {}; historyFor(ids).forEach(h => { if (h.trend_c != null) (hist[h.cm_product_id] ||= []).push([h.day, h.trend_c / 100]); });
   let cost = 0, val = 0, units = 0;
@@ -1435,8 +1437,10 @@ function viewSealed() {
   // valor del sellado día a día (solo días con precio de todos los productos que tenían precio)
   const days = {}; Object.entries(hist).forEach(([id, h]) => h.forEach(([d, v]) => days[d] = (days[d] || 0) + v * ((COL.sealed[id] || {}).qty || 1)));
   const series = Object.entries(days).sort((a, b) => a[0] < b[0] ? -1 : 1).map(([d, v]) => [d, v]);
-  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Sellado</h1>
-      <button class="pill" id="sadd2" style="display:flex;align-items:center;gap:6px">＋ Añadir</button></div>
+  $view.innerHTML = `<div class="stack">${embed ? `<div class="between"><h1>Colección</h1><button class="pill" id="sadd2" style="display:flex;align-items:center;gap:6px">＋ Añadir</button></div>
+      ${setsPills()}`
+    : `<div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Sellado</h1>
+      <button class="pill" id="sadd2" style="display:flex;align-items:center;gap:6px">＋ Añadir</button></div>`}
     <div class="sealhero"><span class="sk">Valor de tu sellado</span><span class="sv">${eur(val)}</span>
       <span class="sk">${units} producto${units === 1 ? '' : 's'}${withBuy.length ? ` · pagaste ${eur(cost)} · <b style="color:${gain >= 0 ? '#3DDC97' : '#F2A65A'}">${gain >= 0 ? '+' : '−'}${eur(Math.abs(gain))} (${pct(cost ? gain / cost * 100 : 0)})</b>` : ''}</span>
       ${series.length > 1 ? `<div style="margin-top:8px">${chartSvg(series, 700, 90)}</div>` : ''}</div>
@@ -1450,16 +1454,17 @@ function viewSealed() {
           <div class="between"><b>${eur(x.now)}</b>${x.g != null ? `<span class="schip ${x.g >= 0 ? 'up' : 'down'}">${pct((x.now - x.e.buy) / x.e.buy * 100)}</span>` : ''}</div></div></a>`).join('')}</div>`
       : '<div class="card col" style="gap:8px;align-items:flex-start"><b>Aún no tienes producto sellado</b><span class="muted">Pulsa «＋ Añadir» y busca tus ETB, cajas o latas. Luego hazles una foto con 📷.</span></div>'}
     <p class="muted">La foto es tuya: hazla con buena luz y de frente. Toca un producto para cambiar la foto, las unidades o lo que pagaste.</p></div>`;
+  if (embed) $view.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { setsFilter = b.dataset.f; viewSets(); });
   const find = document.getElementById('sfind');
   document.getElementById('sadd2').onclick = () => { find.style.display = find.style.display === 'none' ? 'flex' : 'none'; if (find.style.display !== 'none') document.getElementById('sq2').focus(); };
   $view.querySelectorAll('[data-sphoto]').forEach(inp => { inp.onclick = ev => ev.stopPropagation(); inp.onchange = async ev => { const f = ev.target.files[0]; if (!f) return; const id = inp.dataset.sphoto;
-    const u = await resizeImage(f); CUSTOM_IMG['sealed:' + id] = u; await idbPut('img:sealed:' + id, u); imgsDirty = true; saveCol(); toast('Foto guardada'); viewSealed(); }; });
+    const u = await resizeImage(f); CUSTOM_IMG['sealed:' + id] = u; await idbPut('img:sealed:' + id, u); imgsDirty = true; saveCol(); toast('Foto guardada'); viewSealed(embed); }; });
   const sq = document.getElementById('sq2'); let t = null;
   sq.oninput = () => { clearTimeout(t); t = setTimeout(() => {
     const v = sq.value.trim(), box = document.getElementById('sres'); if (v.length < 2) { box.innerHTML = ''; return; }
     const rs = q(`SELECT p.cm_product_id, p.name, p.category, pr.trend FROM cm_products p LEFT JOIN prices pr USING(cm_product_id) WHERE p.kind='sealed' AND p.name LIKE ? ORDER BY p.cm_product_id DESC LIMIT 15`, ['%' + v + '%']);
     box.innerHTML = rs.map(r => `<div class="item"><div class="col" style="flex:1"><b>${esc(r.name)}</b><span class="muted">${esc(SEALED_LABEL[r.category] || r.category.replace('Pokémon ', ''))}</span></div><b>${eur(r.trend)}</b><button class="pill" data-sadd="${r.cm_product_id}" aria-label="Añadir">＋</button></div>`).join('') || '<p class="muted">Nada con ese nombre.</p>';
-    box.querySelectorAll('[data-sadd]').forEach(b => b.onclick = () => { const id = b.dataset.sadd; if (COL.sealed[id]) COL.sealed[id].qty = (COL.sealed[id].qty || 1) + 1; else COL.sealed[id] = { qty: 1 }; saveCol(); toast('Añadido'); viewSealed(); });
+    box.querySelectorAll('[data-sadd]').forEach(b => b.onclick = () => { const id = b.dataset.sadd; if (COL.sealed[id]) COL.sealed[id].qty = (COL.sealed[id].qty || 1) + 1; else COL.sealed[id] = { qty: 1 }; saveCol(); toast('Añadido'); viewSealed(embed); });
   }, 200); };
 }
 
