@@ -1,0 +1,20 @@
+name: Sonda de fotos
+on:
+  push:
+    branches: [prueba-fotos]
+jobs:
+  sonda:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download datos --pattern 9bolsillos.db
+          curl -fsSL https://pablolaraj8-stack.github.io/9bolsillos-precios-a/sellado.json -o sellado.json || true
+          curl -fsSL https://pablolaraj8-stack.github.io/9bolsillos-precios-a/logos.js -o logos.js || true
+          python3 probe.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: report.json
