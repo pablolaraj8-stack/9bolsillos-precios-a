@@ -18,7 +18,7 @@ function q(sql, params = []) {
   st.free(); return out;
 }
 function toast(msg) {
-  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite');
   document.body.appendChild(t); setTimeout(() => t.remove(), 2200);
 }
 function img(base, cls = 'thumb', alt = '', cardId = null) { return cardId && CUSTOM_IMG[cardId] ? `<img class="${cls}" alt="${esc(alt)}" src="${CUSTOM_IMG[cardId]}">` : imgTag(base, 'low', cls, alt); }
@@ -272,7 +272,8 @@ function historyFor(ids) {
 }
 let CHART_PTS = [];
 // Las demás gráficas (ficha de carta, sellado…) se activan solas al aparecer
-new MutationObserver(() => document.querySelectorAll('#view .chartwrap:not([data-w])').forEach(w => wireChart(w))).observe(document.getElementById('view') || document.body, { childList: true, subtree: true });
+let TIDY_Q = 0;
+new MutationObserver(() => { document.querySelectorAll('#view .chartwrap:not([data-w])').forEach(w => wireChart(w)); if (!TIDY_Q) TIDY_Q = requestAnimationFrame(() => { TIDY_Q = 0; tidyView($view); }); }).observe(document.getElementById('view') || document.body, { childList: true, subtree: true });
 // Tocar o arrastrar sobre la gráfica enseña el valor de ese día
 function wireChart(root, onPoint) {
   const wrap = root && (root.classList && root.classList.contains('chartwrap') ? root : root.querySelector('.chartwrap')); if (!wrap || wrap.dataset.w) return; wrap.dataset.w = 1;
@@ -1212,15 +1213,6 @@ function viewCard(cardId) {
         <div class="row" style="flex-wrap:wrap;gap:6px;justify-content:center"><label class="pill" style="display:flex;align-items:center;cursor:pointer;font-size:13px">${CUSTOM_IMG[cardId] ? 'Cambiar foto' : 'Poner mi foto'}<input type="file" id="cimg" accept="image/*" hidden></label>
           <button class="pill" id="curl" style="font-size:13px">Enlace</button>${CUSTOM_IMG[cardId] ? '<button class="pill" id="cdel" style="font-size:13px">Quitar</button>' : ''}</div></div>
       ${nav.html}
-      ${c.dex_id && (!c.kind || c.kind === 'Pokemon') && POKE[c.dex_id] !== null ? `<div class="card col pinfo" id="pinfo">${pokeInfoHTML(c.dex_id, c.name)}</div>` : ''}
-      ${TRAINER_KIND[c.kind] ? `<div class="card col pinfo" id="tinfo" ${trainerInfoHTML(c) ? '' : 'style="display:none"'}>${trainerInfoHTML(c)}</div>` : ''}
-      ${sel ? `<div class="card col" style="gap:12px"><b>Cardmarket${hol ? ' · reverse holo' : ''}</b><div class="kpis">
-        <div><span>Mínimo</span><b>${eur(hol ? sel.low_holo : sel.low)}</b></div><div><span>Tendencia</span><b>${eur(hol ? sel.trend_holo : sel.trend)}</b></div>
-        <div><span>Media 7 días</span><b>${eur(hol ? sel.avg7_holo : sel.avg7)}</b></div><div><span>Media 30 días</span><b>${eur(hol ? sel.avg30_holo : sel.avg30)}</b></div></div>
-        <span class="muted" style="font-size:12px;display:block;margin-top:8px">El botón de Cardmarket abre las ofertas de esta carta en ${c.region === 'asia' ? 'japonés' : 'español'} y desde estado ${cmCond()}. El estado mínimo se cambia en Ajustes.</span></div>` : ''}
-      <div class="col" style="gap:8px"><h2>Evolución del precio</h2>${chartSvg(h, 700, 140)}</div>
-      ${uv.length > 1 ? `<div class="card col" style="gap:8px"><b>Versiones para el máster set</b>${uv.map((v, i) => { const hv = (COL.hide || {})[cardId + '|' + vkey(v)]; return `<div class="row" style="min-height:40px;${hv ? 'opacity:.45' : ''}"><label class="row" style="flex:1;cursor:pointer"><input type="checkbox" data-mv="${i}" ${ok.has(vkey(v)) ? 'checked' : ''} style="width:20px;height:20px;accent-color:#3DDC97"><span style="flex:1">${esc(v ? vLabel(v) : 'Estándar')}${v && v.notEs ? ' <span class="muted">(no sale en español)</span>' : ''}${v && v.stamp ? ' <span class="muted">(promo con sello, fuera del máster set)</span>' : ''}</span><b>${eur(vPrice(v))}</b></label><button class="pill" style="font-size:12px;min-height:34px" data-hv="${i}">${hv ? 'Mostrar' : 'No existe'}</button></div>`; }).join('')}</div>` : ''}
-      <button class="pill" id="hidecard" style="align-self:flex-start;font-size:13px">${(COL.hide || {})[cardId] ? 'Volver a mostrar esta carta en el set' : 'Esta carta no existe en español: ocultarla del set'}</button>
       <div class="card col" style="gap:12px"><b>${e ? 'En tu colección' : 'No la tienes'}</b>
         ${e ? `<span class="muted">Tus copias (${cps.length}). Si una está gradeada, pon su valor: la app no tiene precios de cartas gradeadas.</span>
           <div class="col" style="gap:10px">${cps.map((x, i) => `<div class="copy"><b class="muted" style="min-width:22px">#${i + 1}</b>
@@ -1238,10 +1230,22 @@ function viewCard(cardId) {
         <label class="f" for="tg">Precio objetivo (opcional): te avisa si esta versión baja de</label>
         <div class="row" style="flex-wrap:wrap"><input type="number" id="tg" step="0.01" min="0" value="${al && al.target ? al.target : ''}" placeholder="${p != null ? (Math.floor(p * 0.9 * 100) / 100) : ''}" style="flex:1;min-width:120px">
         <button class="btn" id="setal">${al ? 'Guardar' : '♡ La quiero'}</button>${al ? '<button class="btn sec" id="delal">Quitar</button>' : ''}</div></div>` : ''}
+      <div class="col" style="gap:8px"><h2>Evolución del precio</h2>${chartSvg(h, 700, 140)}</div>
+      <details class="more" id="cardmore" ${lsGet('cardmore', '0') === '1' ? 'open' : ''}><summary>Más información</summary><div class="stack">
+      ${c.dex_id && (!c.kind || c.kind === 'Pokemon') && POKE[c.dex_id] !== null ? `<div class="card col pinfo" id="pinfo">${pokeInfoHTML(c.dex_id, c.name)}</div>` : ''}
+      ${TRAINER_KIND[c.kind] ? `<div class="card col pinfo" id="tinfo" ${trainerInfoHTML(c) ? '' : 'style="display:none"'}>${trainerInfoHTML(c)}</div>` : ''}
+      ${sel ? `<div class="card col" style="gap:12px"><b>Cardmarket${hol ? ' · reverse holo' : ''}</b><div class="kpis">
+        <div><span>Mínimo</span><b>${eur(hol ? sel.low_holo : sel.low)}</b></div><div><span>Tendencia</span><b>${eur(hol ? sel.trend_holo : sel.trend)}</b></div>
+        <div><span>Media 7 días</span><b>${eur(hol ? sel.avg7_holo : sel.avg7)}</b></div><div><span>Media 30 días</span><b>${eur(hol ? sel.avg30_holo : sel.avg30)}</b></div></div>
+        <span class="muted" style="font-size:12px;display:block;margin-top:8px">El botón de Cardmarket abre las ofertas de esta carta en ${c.region === 'asia' ? 'japonés' : 'español'} y desde estado ${cmCond()}. El estado mínimo se cambia en Ajustes.</span></div>` : ''}
+      ${uv.length > 1 ? `<div class="card col" style="gap:8px"><b>Versiones para el máster set</b>${uv.map((v, i) => { const hv = (COL.hide || {})[cardId + '|' + vkey(v)]; return `<div class="row" style="min-height:40px;${hv ? 'opacity:.45' : ''}"><label class="row" style="flex:1;cursor:pointer"><input type="checkbox" data-mv="${i}" ${ok.has(vkey(v)) ? 'checked' : ''} style="width:20px;height:20px;accent-color:#3DDC97"><span style="flex:1">${esc(v ? vLabel(v) : 'Estándar')}${v && v.notEs ? ' <span class="muted">(no sale en español)</span>' : ''}${v && v.stamp ? ' <span class="muted">(promo con sello, fuera del máster set)</span>' : ''}</span><b>${eur(vPrice(v))}</b></label><button class="pill" style="font-size:12px;min-height:34px" data-hv="${i}">${hv ? 'Mostrar' : 'No existe'}</button></div>`; }).join('')}</div>` : ''}
+      <button class="pill" id="hidecard" style="align-self:flex-start;font-size:13px">${(COL.hide || {})[cardId] ? 'Volver a mostrar esta carta en el set' : 'Esta carta no existe en español: ocultarla del set'}</button>
       ${e ? `<div class="card col" style="gap:12px"><b>${sl ? 'A la venta' : 'Vender'}</b>
         ${sl ? `<span class="muted">Pides ${eur(sl.price)} · ${esc(sl.cond)} · ${esc(sl.lang)} · ${sl.qty} ud.</span><div class="row"><a class="btn sec" style="display:flex;align-items:center" href="#/sell">Ver lista de venta</a><button class="btn warn" id="unsell">Quitar de venta</button></div>`
         : `<span class="muted">Precio sugerido: ${eur(p)} (tendencia) · mínimo actual ${eur(hol ? sel && sel.low_holo : sel && sel.low)}</span><button class="btn sec" id="sell">Poner a la venta</button>`}</div>` : ''}
+      </div></details>
     </div>`;
+    { const cmo = document.getElementById('cardmore'); if (cmo) cmo.ontoggle = () => lsSet('cardmore', cmo.open ? '1' : '0'); }
     $view.querySelectorAll('[data-mv]').forEach(x => x.onchange = () => { toggleVariant(cardId, c.set_id, uv[+x.dataset.mv], vs); viewCard(cardId); });
     $view.querySelectorAll('[data-hv]').forEach(b => b.onclick = () => { COL.hide ||= {}; const k = cardId + '|' + vkey(uv[+b.dataset.hv]); if (COL.hide[k]) delete COL.hide[k]; else COL.hide[k] = 1; saveCol(); viewCard(cardId); });
     const hc = document.getElementById('hidecard'); if (hc) hc.onclick = () => { COL.hide ||= {}; if (COL.hide[cardId]) delete COL.hide[cardId]; else COL.hide[cardId] = 1; saveCol(); toast(COL.hide[cardId] ? 'Oculta del set' : 'Visible de nuevo'); viewCard(cardId); };
@@ -1905,7 +1909,7 @@ function viewReport() {
   const srows = sids.filter(id => si[id]).map(id => { const x = si[id], p = rPrice(x), qn = COL.sealed[id].qty || 1; return { x, p, qn, tv: (p || 0) * qn }; }).sort((a, b) => b.tv - a.tv);
   const totC = rows.reduce((t, r) => t + r.tv, 0), totS = srows.reduce((t, r) => t + r.tv, 0), nC = rows.reduce((t, r) => t + r.qn, 0);
   const fecha = new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
-  $view.innerHTML = `<div class="stack report"><div class="row noprint"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Informe de valoración</h1><button class="btn" id="rprint">Guardar en PDF</button></div>
+  $view.innerHTML = `<div class="stack report"><div class="row noprint"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Números y valor</h1></div><div class="noprint">${numTabs('#/informe')}</div><button class="btn noprint" id="rprint">Guardar en PDF</button>
     <div class="rhead"><h1>Colección de cartas Pokémon${lsGet('trade_name', '') ? ' de ' + esc(lsGet('trade_name', '')) : ''}</h1><span>Valoración a ${esc(fecha)} · precios de mercado de Cardmarket (tendencia) del ${esc(PRICE_DATE || '')}</span></div>
     <div class="kpis"><div><span class="muted">Valor total</span><b>${eur(totC + totS)}</b></div><div><span class="muted">Cartas (${nC})</span><b>${eur(totC)}</b></div><div><span class="muted">Producto sellado (${srows.reduce((t, r) => t + r.qn, 0)})</span><b>${eur(totS)}</b></div></div>
     <h2>Las más valiosas</h2><div class="rtop">${rows.slice(0, 12).map(r => `<div><div class="img">${img(r.i.image_base, '', '', r.id)}</div><b>${esc(r.i.name)}</b><span>${esc(r.i.set_name)} · ${esc(r.i.local_id)}</span><b>${eur(r.tv)}</b></div>`).join('')}</div>
@@ -1933,7 +1937,7 @@ function viewProfit() {
   const byDay = {}; P.forEach(p => { if (p.date && p.price) byDay[p.date] = (byDay[p.date] || 0) + p.price; });
   let acc = 0; const pts = Object.keys(byDay).sort().map(d => [+d.replace(/-/g, ''), (acc += byDay[d])]);
   if (pts.length) pts.push([+todayISO().replace(/-/g, ''), acc]);
-  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Rentabilidad</h1></div>
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Números y valor</h1></div>${numTabs('#/rentabilidad')}
     <div class="herocard"><div class="col"><span class="hk">${gain >= 0 ? 'Ganas' : 'Pierdes'} sobre lo que has metido</span><div class="big ${gain >= 0 ? 'up' : 'down'}">${gain >= 0 ? '+' : '−'}${eur(Math.abs(gain))}</div>
       <span class="muted">Has metido ${eur(spent)} · hoy vale ${eur(value)}${spent ? ` · ${gain >= 0 ? '+' : '−'}${Math.round(Math.abs(gain) / spent * 100)} %` : ''}</span></div></div>
     <div class="kpis"><div><span class="muted">Cartas</span><b>${eur(vCards)}</b></div><div><span class="muted">Komiya y japonesas</span><b>${eur(vKom)}</b></div><div><span class="muted">Sellado</span><b>${eur(vSealed)}</b></div><div><span class="muted">Metido en sellado</span><b>${eur(byType.sealed || 0)}</b></div></div>
@@ -2171,7 +2175,7 @@ function viewStats() {
   const tmax = types.length ? types[0][1] : 1, ymax = years.length ? Math.max(...years.map(y => y[1])) : 1;
   const topDex = dex[0], topDexName = topDex ? dexName(+topDex[0], '') : '';
   const S = (grad, inner) => `<div class="stat" style="background:${grad}">${inner}</div>`;
-  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1>Tu colección en números</h1></div>
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1>Números y valor</h1></div>${numTabs('#/stats')}
     ${S('linear-gradient(135deg,#1f6f5c,#0f2f3a)', `<span class="sk">Tienes</span><span class="sv">${copies.toLocaleString('es-ES')} cartas</span><span class="sk">${rows.length.toLocaleString('es-ES')} distintas · valen ${eur(value)}${spent ? ` · has gastado ${eur(spent)}` : ''}</span>`)}
     ${top ? S('linear-gradient(135deg,#7a4b12,#2b1a08)', `<div class="row" style="gap:14px;align-items:center"><a href="#/card/${encodeURIComponent(top.card_id)}" style="width:96px;flex:none">${cardImg(top, 'low', 'hero', top.name)}</a><div class="col"><span class="sk">Tu carta más cara</span><span class="sv">${esc(top.name)}</span><span class="sk">${esc(top.set_name)} · ${eur(price[top.card_id])}</span></div></div>`) : ''}
     ${ill.length ? S('linear-gradient(135deg,#4a2a7a,#1a1030)', `<span class="sk">Tu ilustrador más repetido</span><a class="sv" style="color:#fff" href="#/illustrator/${encodeURIComponent(ill[0][0])}">${esc(ill[0][0])} →</a><span class="sk">${ill[0][1]} cartas${ill[1] ? ` · después ${esc(ill[1][0])} (${ill[1][1]})${ill[2] ? ` y ${esc(ill[2][0])} (${ill[2][1]})` : ''}` : ''}</span>`) : ''}
@@ -2380,29 +2384,50 @@ const IC = {
 const ico = (n, s = 20, extra = '') => `<svg class="ico ${extra}" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n] || ''}</svg>`;
 // Fila de lista agrupada estilo Ajustes del iPhone
 const grow = (href, icon, color, title, sub) => `<a class="grow" href="${href}"><span class="gico" style="background:${color}">${ico(icon, 18)}</span><span class="col" style="flex:1;min-width:0;gap:1px"><b>${title}</b>${sub ? `<span class="muted">${sub}</span>` : ''}</span>${ico('chev', 16, 'chev')}</a>`;
+function tidyView(root) {
+  root.querySelectorAll('.muted:not([data-tidy]), p.muted:not([data-tidy])').forEach(el => {
+    el.dataset.tidy = 1;
+    if (el.closest('.item, .shoprow, .verdict, details.info, .list, .kpis, .herocard, .tile, summary, label, .rsheet, .toast, .center, .rtop, .card.muted') || el.classList.contains('card') || el.classList.contains('ell')) return;
+    const t = (el.textContent || '').trim();
+    if (t.length < 120) return;
+    const d = document.createElement('details'); d.className = 'info';
+    d.innerHTML = '<summary>Cómo funciona</summary>'; el.replaceWith(d); d.appendChild(el);
+  });
+  root.querySelectorAll('.up:not([data-arw]), .down:not([data-arw])').forEach(el => {
+    el.dataset.arw = 1; const t = (el.textContent || '').trim();
+    if (/^[+−-]\s?\d/.test(t) && !/^[▲▼]/.test(t)) el.insertAdjacentText('afterbegin', t[0] === '+' ? '▲ ' : '▼ ');
+  });
+}
 function viewMore() {
   const n = k => Object.keys(COL[k] || {}).length, pl = (k, one, many) => `${k} ${k === 1 ? one : many}`;
   $view.innerHTML = `<div class="stack"><h1>Más</h1>
     <div class="gsec"><span class="ghead">Tu colección</span><div class="group">
-      ${grow('#/stats', 'stats', '#7C5CFA', 'Tu colección en números', 'Ilustrador, Pokémon y año favoritos, tu carta más cara…')}
-      ${grow('#/show', 'present', '#2F9BF0', 'Enseñar colección', 'Tus archivadores a pantalla completa, sin precios')}
-      ${grow('#/illustrators', 'brush', '#E0752B', 'Ilustradores', pl(n('illustrators'), 'colección que sigues', 'colecciones que sigues'))}
+      ${grow('#/stats', 'stats', '#7C5CFA', 'Números y valor', 'Estadísticas, rentabilidad e informe en PDF')}
       ${grow('#/sealed', 'box', '#C79A3A', 'Sellado', pl(n('sealed'), 'producto', 'productos'))}
-      ${grow('#/rentabilidad', 'chart', '#2FB57A', 'Rentabilidad', 'Lo que has metido frente a lo que vale hoy')}
+      ${grow('#/illustrators', 'brush', '#E0752B', 'Ilustradores', pl(n('illustrators'), 'colección que sigues', 'colecciones que sigues'))}
+      ${grow('#/aperturas', 'present', '#E0752B', 'Aperturas', pl((COL.openings || []).length, 'apertura apuntada', 'aperturas apuntadas'))}
       ${grow('#/metas', 'sparkle', '#8C6BF2', 'Metas del año', pl((COL.goals || []).length, 'meta', 'metas'))}
-      ${grow('#/informe', 'stats', '#5A7184', 'Informe de valoración', 'PDF con todo lo que tienes y su valor (seguro, venta…)')}
-      ${grow('#/aperturas', 'present', '#E0752B', 'Aperturas', pl((COL.openings || []).length, 'apertura apuntada', 'aperturas apuntadas') + ' · tu suerte')}</div></div>
-    <div class="gsec"><span class="ghead">Comprar y vender</span><div class="group">
+      ${grow('#/show', 'binder', '#2F9BF0', 'Enseñar colección', 'Tus archivadores a pantalla completa')}</div></div>
+    <div class="gsec"><span class="ghead">Comprar</span><div class="group">
+      ${grow('#/ofertas', 'tag', '#E3B341', 'Ofertas de sellado', 'Chollos y preventas en tiendas españolas')}
       ${grow('#/wish', 'heart', '#E0526B', 'Lista de deseos', 'Cartas que quieres y avisos de precio')}
-      ${grow('#/ofertas', 'tag', '#E3B341', 'Ofertas de sellado', 'Lo que hoy está barato en tiendas españolas')}
-      ${grow('#/calendario', 'calendar', '#E2465B', 'Lanzamientos', 'Próximos sets en España, con cuenta atrás')}
-      ${grow('#/expenses', 'wallet', '#3A7BD5', 'Gastos', pl(COL.purchases.length, 'compra apuntada', 'compras apuntadas'))}
-      ${grow('#/feria', 'search', '#F25C5C', 'Modo feria', '¿La tengo? ¿Cuánto pagar? Rápido y sin conexión')}
-      ${grow('#/regalos', 'present', '#E3B341', 'Lista de regalos', 'Enlace para la familia con ideas por precio')}
-      ${grow('#/intercambio', 'cart', '#2F9BF0', 'Lista de intercambio', 'Enlace con tus repetidas y lo que buscas')}
-      ${grow('#/sell', 'tag', '#D5527F', 'Lista de venta', pl(n('sell'), 'carta', 'cartas') + ' · repetidas y exportar')}</div></div>
+      ${grow('#/calendario', 'calendar', '#E2465B', 'Lanzamientos', 'Próximos sets en España')}
+      ${grow('#/feria', 'search', '#F25C5C', 'Modo feria', '¿La tengo? ¿Cuánto pagar?')}
+      ${grow('#/expenses', 'wallet', '#3A7BD5', 'Gastos', pl(COL.purchases.length, 'compra apuntada', 'compras apuntadas'))}</div></div>
+    <div class="gsec"><span class="ghead">Compartir y vender</span><div class="group">
+      ${grow('#/intercambio', 'cart', '#2F9BF0', 'Lista de intercambio', 'Tus repetidas y lo que buscas')}
+      ${grow('#/regalos', 'present', '#E3B341', 'Lista de regalos', 'Ideas por precio para la familia')}
+      ${grow('#/sell', 'tag', '#D5527F', 'Lista de venta', pl(n('sell'), 'carta', 'cartas'))}</div></div>
     <div class="gsec"><span class="ghead">App</span><div class="group">
-      ${grow('#/settings', 'gear', '#6B7280', 'Ajustes', 'Cuenta, avisos, base de datos y copias')}</div></div></div>`;
+      ${grow('#/avisos', 'bell', '#F59E0B', 'Avisos', 'Qué te llega al móvil')}
+      ${grow('#/settings', 'gear', '#6B7280', 'Ajustes', 'Cuenta, apariencia, base de datos y copias')}</div></div></div>`;
+}
+// Pestañas comunes de «Números y valor»
+const numTabs = cur => `<div class="seg numtabs" role="tablist">${[['#/stats', 'Números'], ['#/rentabilidad', 'Rentabilidad'], ['#/informe', 'Informe']].map(([h, l]) => `<a role="tab" aria-selected="${h === cur}" class="${h === cur ? 'on' : ''}" href="${h}">${l}</a>`).join('')}</div>`;
+function viewAvisos() {
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Avisos</h1></div>
+    <div class="card col" style="gap:10px" id="pushcard"></div></div>`;
+  pushCard();
 }
 
 let searchQ = '';
@@ -2518,7 +2543,10 @@ function viewSettings() {
   const days = HAS_HISTORY ? q('SELECT COUNT(DISTINCT day) n FROM history')[0].n : 0;
   $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center">←</a><h1>Ajustes</h1></div>
     ${syncCard()}
-    <div class="card col" style="gap:10px" id="pushcard"></div>
+    <a class="card row" href="#/avisos" style="gap:12px;align-items:center;color:var(--tx)"><span class="gico" style="background:#F59E0B">${ico('bell', 18)}</span><div class="col" style="flex:1"><b>Avisos al móvil</b><span class="muted">Qué te llega y cuándo</span></div>${ico('chev', 16)}</a>
+    <div class="card col" style="gap:4px"><b>Apariencia</b>
+      <label class="f">Tema<select id="theme"><option value="dark">Oscuro</option><option value="light">Claro</option><option value="auto">Como el iPhone</option></select></label>
+      <label class="tg"><span class="col"><b>Tamaño de letra del iPhone</b><span class="muted">Si tienes la letra grande en el iPhone, 9B también</span></span><input type="checkbox" class="sw" id="dyntype"></label></div>
     <div class="card col" style="gap:10px"><b>Base de datos</b><span class="muted">Precios del ${PRICE_DATE.split('-').reverse().join('/')} · ${days} día${days === 1 ? '' : 's'} de historial</span>
       <span class="muted">${ONLINE ? 'Se actualiza sola cada vez que abres la app y hay precios nuevos.' : 'Para actualizar: descarga <b>9bolsillos.db</b> de tu repositorio de GitHub (Releases → datos) y cárgala aquí.'}</span>
       <label class="btn sec" style="display:flex;align-items:center;justify-content:center;cursor:pointer">Cargar base de datos nueva<input type="file" id="dbf" accept=".db" hidden></label></div>
@@ -2539,6 +2567,8 @@ function viewSettings() {
   document.getElementById('dbf').onchange = async ev => { const f = ev.target.files[0]; if (!f) return; try { const b = await f.arrayBuffer(); openDb(b); await idbPut('db', b); await idbPut('db_date', PRICE_DATE); toast('Base de datos actualizada'); viewSettings(); } catch (e) { alert('No se pudo cargar: ' + e.message); } };
   wireSync(viewSettings);
   pushCard();
+  const thS = document.getElementById('theme'); if (thS) { thS.value = lsGet('theme', 'dark'); thS.onchange = () => { lsSet('theme', thS.value); window.__theme && window.__theme(); }; }
+  const dt = document.getElementById('dyntype'); if (dt) { dt.checked = lsGet('dyntype', '1') !== '0'; dt.onchange = () => { lsSet('dyntype', dt.checked ? '1' : '0'); window.__type && window.__type(); }; }
   $view.querySelectorAll('[data-ne]').forEach(b => b.onclick = () => { SHOW_NON_ES = b.dataset.ne === '1'; try { localStorage.setItem('9b.showNonEs', SHOW_NON_ES ? '1' : '0'); } catch (e) {} viewSettings(); });
   $view.querySelectorAll('[data-pm]').forEach(b => b.onclick = () => { PRICE_MODE = b.dataset.pm; try { localStorage.setItem('9b.priceMode', PRICE_MODE); } catch (e) {} toast(PRICE_MODE === 'low' ? 'Usando la oferta más baja' : 'Usando la tendencia'); viewSettings(); });
   document.getElementById('exp').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(Object.assign({}, COL, { images: CUSTOM_IMG }), null, 1)], { type: 'application/json' })); a.download = `9bolsillos-coleccion-${new Date().toISOString().slice(0, 10)}.json`; a.click(); };
@@ -2655,12 +2685,12 @@ async function pushCard() {
     const perm = Notification.permission;
     body = perm === 'denied' ? '<span class="muted">Has bloqueado las notificaciones de 9Bolsillos. Actívalas en los ajustes del navegador o del móvil y vuelve aquí.</span>'
       : sub ? `<span class="up" style="font-weight:600">Activados en este dispositivo</span><span class="muted">${Object.values(COL.alerts).filter(a => a.target).length} deseos con precio objetivo.</span>
-        <div class="col" style="gap:8px"><label class="f">Chollos de sellado (a buen precio en tiendas)<select id="pschol"><option value="all" ${(COL.chollos || 'all') === 'all' ? 'selected' : ''}>Avisarme de todos</option><option value="marked" ${COL.chollos === 'marked' ? 'selected' : ''}>Solo de los productos que marque</option><option value="off" ${COL.chollos === 'off' ? 'selected' : ''}>No avisar</option></select></label>
-        <label class="row" style="gap:8px;align-items:center"><input type="checkbox" id="psweek" ${COL.weeklyOff ? '' : 'checked'}> <span>Resumen de la semana (domingos)</span></label>
-        <label class="row" style="gap:8px;align-items:center"><input type="checkbox" id="pskom" ${COL.komiyaOff ? '' : 'checked'}> <span>Cartas nuevas de Komiya</span></label>
-        <label class="row" style="gap:8px;align-items:center"><input type="checkbox" id="psrad" ${COL.radarOff ? '' : 'checked'}> <span>Cartas que te faltan, rebajadas</span></label>
-        <label class="row" style="gap:8px;align-items:center"><input type="checkbox" id="psprev" ${COL.preventaOff ? '' : 'checked'}> <span>Preventas de sets nuevos en español</span></label>
-        <label class="row" style="gap:8px;align-items:center"><input type="checkbox" id="psgoal" ${COL.goalsOff ? '' : 'checked'}> <span>Cómo van tus metas (día 1 de cada mes)</span></label></div>
+        <div class="col" style="gap:8px"><label class="f"><b>Chollos de sellado</b><span class="muted">Producto en español a buen precio con envío</span><select id="pschol"><option value="all" ${(COL.chollos || 'all') === 'all' ? 'selected' : ''}>Avisarme de todos</option><option value="marked" ${COL.chollos === 'marked' ? 'selected' : ''}>Solo de los productos que marque</option><option value="off" ${COL.chollos === 'off' ? 'selected' : ''}>No avisar</option></select></label>
+        <label class="tg"><span class="col"><b>Resumen de la semana (domingos)</b><span class="muted">Los domingos: cuánto vale tu colección y qué se ha movido</span></span><input type="checkbox" class="sw" id="psweek" ${COL.weeklyOff ? '' : 'checked'}></label>
+        <label class="tg"><span class="col"><b>Cartas nuevas de Komiya</b><span class="muted">Cuando sale una carta suya nueva en un set japonés</span></span><input type="checkbox" class="sw" id="pskom" ${COL.komiyaOff ? '' : 'checked'}></label>
+        <label class="tg"><span class="col"><b>Cartas que te faltan, rebajadas</b><span class="muted">Cartas que te faltan, un 15 % por debajo de su media</span></span><input type="checkbox" class="sw" id="psrad" ${COL.radarOff ? '' : 'checked'}></label>
+        <label class="tg"><span class="col"><b>Preventas de sets nuevos en español</b><span class="muted">Cuando las tiendas abren reservas de un set nuevo</span></span><input type="checkbox" class="sw" id="psprev" ${COL.preventaOff ? '' : 'checked'}></label>
+        <label class="tg"><span class="col"><b>Cómo van tus metas (día 1 de cada mes)</b><span class="muted">El día 1 de cada mes</span></span><input type="checkbox" class="sw" id="psgoal" ${COL.goalsOff ? '' : 'checked'}></label></div>
         <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="pstest">Probar</button><button class="btn warn" id="psoff">Desactivar aquí</button></div>`
       : '<div class="row"><button class="btn" id="pson">Activar avisos en este dispositivo</button></div>';
   }
@@ -2727,7 +2757,7 @@ function route() {
   ordenAuto();
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   const [, a, b] = h.split('/');
-  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'more', wish: 'more', settings: 'more', more: 'more', buy: 'buy', scan: 'search', dex: 'sets', stats: 'more', calendario: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more', ofertas: 'more', envios: 'more', abrir: 'more', aperturas: 'more', intercambio: 'more', i: 'more', feria: 'more', regalos: 'more', g: 'more', informe: 'more', rentabilidad: 'more', metas: 'more' }[a || ''] || 'home';
+  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'more', wish: 'more', settings: 'more', more: 'more', buy: 'buy', scan: 'search', dex: 'sets', stats: 'more', calendario: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more', ofertas: 'more', envios: 'more', abrir: 'more', aperturas: 'more', intercambio: 'more', i: 'more', feria: 'more', regalos: 'more', g: 'more', informe: 'more', rentabilidad: 'more', metas: 'more', avisos: 'more' }[a || ''] || 'home';
   $tabs.querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
   window.scrollTo(0, 0);
   $view.classList.remove('vin'); void $view.offsetWidth; $view.classList.add('vin');   // entrada suave de cada pantalla
@@ -2757,6 +2787,7 @@ function route() {
     else if (a === 'informe') viewReport();
     else if (a === 'rentabilidad') viewProfit();
     else if (a === 'metas') viewGoals();
+    else if (a === 'avisos') viewAvisos();
     else if (a === 'envios') viewEnvios();
     else if (a === 'sealeditem') viewSealedItem(b);
     else if (a === 'sell') viewSell();

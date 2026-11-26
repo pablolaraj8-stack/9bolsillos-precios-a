@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0E1116">
+<script>/* tema (oscuro / claro / como el iPhone) y tamaño de letra del sistema, antes de pintar */
+(function(){var d=document.documentElement;function th(){var m='dark';try{m=localStorage.getItem('theme')||'dark'}catch(e){}var l=m==='light'||(m==='auto'&&matchMedia('(prefers-color-scheme: light)').matches);d.dataset.theme=l?'light':'dark';var mc=document.querySelector('meta[name=theme-color]');if(mc)mc.content=l?'#F5F6F8':'#0E1116'}
+function ty(){try{var p=document.createElement('div');p.style.cssText='font:-apple-system-body;position:absolute;visibility:hidden';(document.body||d).appendChild(p);var s=parseFloat(getComputedStyle(p).fontSize);p.remove();var on=false;try{on=localStorage.getItem('dyntype')!=='0'}catch(e){}d.style.zoom=on&&s&&s!==16&&/iPhone|iPad|iPod/.test(navigator.userAgent)?Math.max(1,Math.min(1.35,s/17)):''}catch(e){}}
+window.__theme=th;window.__type=ty;th();try{matchMedia('(prefers-color-scheme: light)').addEventListener('change',th)}catch(e){}
+document.addEventListener('DOMContentLoaded',ty);document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')ty()})})();</script>
 <title>9Bolsillos</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon-64.png">
@@ -263,12 +268,54 @@ details.combo.good{border-color:rgba(61,220,151,.45)}details.combo.warn{border-c
 input:not([type]){height:44px;border-radius:12px;border:1px solid var(--line);background:var(--bg2);padding:0 12px;min-width:0;color:var(--tx)}
 .feriaq{height:56px!important}
 [hidden]{display:none!important}
+input[type=email],input[type=password],input[type=date]{height:44px;border-radius:12px;border:1px solid var(--line);background:var(--bg2);padding:0 12px;min-width:0;color:var(--tx)}
 .col>.rate{align-self:flex-start}
+/* ===== Accesibilidad y limpieza ===== */
+:root{--tx3:#AAB2BD}
+.muted{font-size:13.5px}
+[style*="font-size:12px"]{font-size:13px!important}
+[style*="font-size:11px"]{font-size:12px!important}
+.pill,.btn,button.pill,a.pill{min-height:44px}
+.iconbtn{width:44px;height:44px}
+.item .pill,.shoprow .pill{min-width:44px;justify-content:center}
+:focus-visible{outline:2px solid var(--acc)!important;outline-offset:2px}
+details.info{margin:2px 0}
+details.info>summary{list-style:none;display:inline-flex;align-items:center;gap:6px;min-height:36px;color:var(--tx3);font-size:13.5px;font-weight:600;cursor:pointer}
+details.info>summary::-webkit-details-marker{display:none}
+details.info>summary::before{content:"i";display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;border:1.5px solid currentColor;font-size:11px;font-weight:800;font-style:italic}
+details.info[open]>summary{margin-bottom:4px}
+details.more{background:var(--bg2);border:1px solid var(--line);border-radius:18px;padding:2px 16px}
+details.more>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;min-height:52px;font-weight:700;cursor:pointer}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::after{content:"";width:9px;height:9px;border-right:2px solid var(--tx3);border-bottom:2px solid var(--tx3);transform:rotate(45deg);transition:transform .2s}
+details.more[open]>summary::after{transform:rotate(-135deg)}
+details.more[open]{padding-bottom:14px}details.more>.stack{gap:14px}
+.tg{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}.tg:last-child{border-bottom:0}
+.tg .col{flex:1;min-width:0;gap:2px}
+input.sw{appearance:none;-webkit-appearance:none;width:51px!important;height:31px!important;flex:none!important;border-radius:999px;background:var(--bg3)!important;border:1px solid var(--line)!important;position:relative;cursor:pointer;transition:background .2s}
+input.sw::after{content:"";position:absolute;top:2px;left:2px;width:25px;height:25px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .2s}
+input.sw:checked{background:var(--acc)!important;border-color:var(--acc)!important}input.sw:checked::after{transform:translateX(20px)}
+.numtabs{display:flex!important;margin-top:-4px}.numtabs a{flex:1;display:flex;align-items:center;justify-content:center;min-height:40px;border-radius:9px;color:var(--tx3);font-weight:600;font-size:14px}.numtabs a.on{background:var(--tx);color:var(--bg)}
+.stack{gap:16px}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+/* ===== Modo claro ===== */
+html[data-theme=light]{--bg:#F5F6F8;--bg2:#FFFFFF;--bg3:#ECEFF3;--line:#DFE3E8;--tx:#12161C;--tx2:#38404B;--tx3:#596270;--up:#0E9C63;--down:#B8600B;--acc:#0E9C63;--blue:#2F6BDF;color-scheme:light}
+html[data-theme=light] body{background:var(--bg);color:var(--tx)}
+html[data-theme=light] .tabs{background:rgba(255,255,255,.82)!important;border-top:1px solid var(--line)}
+html[data-theme=light] .card,html[data-theme=light] .herocard,html[data-theme=light] .group,html[data-theme=light] details.combo{box-shadow:0 1px 2px rgba(16,24,40,.05)}
+html[data-theme=light] .herocard{background:linear-gradient(160deg,#FFFFFF,#EEF6F1)!important;border:1px solid var(--line)}
+html[data-theme=light] .rate.good,html[data-theme=light] .verdict.good,html[data-theme=light] .hnote.good{color:#0B7F50}
+html[data-theme=light] .rate.high,html[data-theme=light] .verdict.high,html[data-theme=light] .hnote.high{color:#B42318}
+html[data-theme=light] .rate.mid,html[data-theme=light] .verdict.mid{color:#475467}
+html[data-theme=light] .toast{background:#12161C;color:#fff}
+html[data-theme=light] .alertbox{background:#E9F8F1}
+html[data-theme=light] .modetag.master,html[data-theme=light] .setrow.master .cnt.has{color:#9A6B00}
+html[data-theme=light] .oq{color:#fff}
 </style>
 </head>
 <body>
 <div id="app"><main id="view"><div class="center"><h1>9Bolsillos</h1><p class="muted">Cargando…</p></div></main></div>
-<nav class="tabs" id="tabs" hidden><div class="in">
+<nav class="tabs" id="tabs" hidden aria-label="Secciones"><div class="in">
   <a href="#/" data-t="home"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>Portfolio</a>
   <a href="#/sets" data-t="sets"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Colección</a>
   <a href="#/search" data-t="search"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Buscar</a>
