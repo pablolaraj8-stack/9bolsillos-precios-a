@@ -1,22 +1,80 @@
-import urllib.request, gzip, re, json
-UA = {"User-Agent": "9Bolsillos/1.0 (app personal; compara precios una vez al día)", "Accept-Language": "es-ES", "Accept-Encoding": "gzip"}
-def get(u):
-    r = urllib.request.urlopen(urllib.request.Request(u, headers=UA), timeout=25)
+"""El Corte Inglés: producto sellado de Pokémon (JCC) con su precio y si hay stock.
+
+Solo páginas que su robots.txt permite (listados de la marca y fichas de producto; el buscador no),
+una petición cada pocos segundos. El precio y el stock salen del bloque schema.org de cada ficha.
+"""
+import gzip, json, re, time, urllib.request
+
+BASE = "https://www.elcorteingles.es"
+UA = {"User-Agent": "9Bolsillos/1.0 (app personal; mira el stock unas pocas veces al día; github.com/pablolaraj8-stack/9bolsillos-precios-a)",
+      "Accept-Language": "es-ES", "Accept-Encoding": "gzip"}
+LISTADOS = ["/marcas/pokemon/juguetes/", "/pokemon/juguetes/juegos-de-mesa/",
+            "/juguetes/kidults/juegos-de-mesa-para-adultos/cartas-coleccionables/"]
+JCC = re.compile(r"jcc|tcg|cartas?|entrenador|sobre|blister|bl%C3%ADster|lata|coleccion|booster|combina", re.I)
+
+
+def _get(path, pausa=2.5):
+    url = path if path.startswith("http") else BASE + path
+    r = urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=30)
     b = r.read()
-    try: b = gzip.decompress(b)
-    except Exception: pass
-    return r.status, b.decode("utf-8", "replace")
-out = {}
-for u in ["https://www.elcorteingles.es/pokemon/juguetes/juegos-de-mesa/",
-          "https://www.elcorteingles.es/juguetes/A203815789-caja-de-entrenador-elite-dominio-delta-de-jcc-pokemon-bandai/",
-          "https://www.elcorteingles.es/juguetes/A201235760-caja-de-entrenador-elite-oscuridad-absoluta-pokemon-jcc-bandai/"]:
     try:
-        st, t = get(u)
-        lds = re.findall(r'<script[^>]*application/ld\+json[^>]*>(.*?)</script>', t, re.S)
-        links = sorted(set(re.findall(r'href="(/juguetes/A\d+-[^"]+)"', t)))
-        prices = re.findall(r'"(?:price|sale_price|final_price|promotional_price)"\s*:\s*"?([\d.,]+)', t)[:8]
-        out[u] = {"status": st, "len": len(t), "ld": [x[:1500] for x in lds][:3], "links": links[:60], "prices": prices,
-                  "avail": re.findall(r'(InStock|OutOfStock|SoldOut|agotad\w*)', t)[:5]}
-    except Exception as e:
-        out[u] = {"err": str(e)}
-json.dump(out, open("eci.json", "w"), ensure_ascii=False, indent=1)
+        b = gzip.decompress(b)
+    except Exception:
+        pass
+    time.sleep(pausa)
+    return b.decode("utf-8", "replace")
+
+
+def fichas():
+    """Direcciones de las fichas de producto de Pokémon JCC que salen en los listados."""
+    vistas = []
+    for lst in LISTADOS:
+        for page in range(1, 6):
+            try:
+                html = _get(lst if page == 1 else f"{lst}{page}/")
+            except Exception:
+                break
+            nuevas = [l for l in dict.fromkeys(re.findall(r'href="(/juguetes/A\d+-[^"]+/)"', html))
+                      if "pokemon" in l and JCC.search(l) and l not in vistas]
+            if not nuevas:
+                break
+            vistas += nuevas
+    return vistas
+
+
+def producto(path):
+    html = _get(path)
+    for raw in re.findall(r'<script[^>]*application/ld\+json[^>]*>(.*?)</script>', html, re.S):
+        try:
+            d = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(d, dict) and d.get("@type") == "Product":
+            of = d.get("offers") or {}
+            if isinstance(of, list):
+                of = of[0] if of else {}
+            try:
+                precio = float(of.get("price"))
+            except Exception:
+                return None
+            return {"t": d.get("name") or "", "p": round(precio, 2),
+                    "a": "InStock" in str(of.get("availability", "")) or "PreOrder" in str(of.get("availability", "")),
+                    "u": d.get("url") or BASE + path, "id": re.search(r"/A(\d+)-", path).group(1)}
+    return None
+
+
+def productos():
+    out = []
+    for f in fichas():
+        try:
+            p = producto(f)
+        except Exception:
+            p = None
+        if p:
+            out.append(p)
+    return out
+
+
+if __name__ == "__main__":
+    for p in productos():
+        print(("STOCK " if p["a"] else "agot. ") + f'{p["p"]:>7.2f} € {p["t"]}')
