@@ -578,7 +578,7 @@ function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
       <div class="bar"><div style="width:${p}%"></div></div>
       <div class="between muted" style="flex-wrap:wrap"><span>Tu parte vale <b style="color:var(--tx)">${eur(val)}</b></span><span>Completarlo hoy: <b style="color:var(--tx)">${eur(missCost)}</b></span></div>
       ${key.startsWith('set:') && missCost > 0 ? finishLine(missCost, E.length - have) : ''}
-      ${MASTER ? '' : bulkAlertButton(key)}
+      ${budgetButton()}
       ${key.startsWith('set:') ? `<a class="pill" href="#/abrir/${encodeURIComponent(key.slice(4))}" style="align-self:flex-start;font-size:13px">Apuntar una apertura de este set</a>` : ''}`;
     const bb = headEl.querySelector('[data-bulk]'); if (bb) bb.onclick = () => bulkAlerts(key, cards.filter(c => !COL.cards[c.card_id]).map(c => { const v = (vmap[c.card_id] || []).slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0]; return v && vPrice(v) ? { key: v.cm_product_id + '|' + (v.variant || ''), card: c.card_id, cm: v.cm_product_id, variant: v.variant, price: vPrice(v), name: c.name } : null; }).filter(Boolean), draw);
     const tile = (e, i, pocket) => {
@@ -934,7 +934,7 @@ function viewOrden(name, ord) {
     headEl.innerHTML = `<div class="between"><b>Tienes ${have} de ${E.length}</b><b class="up" style="font-size:22px">${Math.round(pc)} %</b></div>
       <div class="bar"><div style="width:${pc}%"></div></div>
       <div class="between muted" style="flex-wrap:wrap"><span>Tu parte vale <b style="color:var(--tx)">${eur(val)}</b></span><span>Lo que falta (con precio): <b style="color:var(--tx)">${eur(miss)}</b></span></div>
-      ${bulkAlertButton('orden:' + name.toLowerCase())}
+      ${budgetButton()}
       ${next ? `<span class="muted">Siguiente en tu orden: <b style="color:var(--tx)">#${next.o} ${esc(next.n)}</b> · ${esc(next.s)} (${esc(next.d.slice(0, 4))})</span>` : ''}`;
     const ob = headEl.querySelector('[data-bulk]'); if (ob) ob.onclick = () => bulkAlerts('orden:' + name.toLowerCase(), E.filter(e => !ordenOwned(name, e)).map(e => { const p = ordenPrice(name, e, vmap); if (!p) return null;
       if (e.id) { const v = (vmap[e.id] || []).slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0]; return v ? { key: v.cm_product_id + '|' + (v.variant || ''), card: e.id, cm: v.cm_product_id, variant: v.variant, price: p, name: e.n } : null; }
@@ -1036,6 +1036,10 @@ function pokeAfter(dex, nm) {
   if (POKE[dex] === undefined || (POKE[dex] && !POKE[dex].evo)) { if (POKE[dex]) fill(); loadPoke(dex).then(fill); } else fill();
 }
 /* ---------- avisos en bloque: todo lo que te falta de un set o de "Mi orden", con un % de bajada ---------- */
+function budgetButton() {
+  const bud = parseFloat(lsGet('buy_budget', '50')) || 0, left = Math.max(0, bud - monthSpent());
+  return `<a class="pill" href="#/buy" style="align-self:flex-start;font-size:13px;display:flex;align-items:center;gap:6px">${ico('wallet', 16)}Qué me compro con lo que me queda (${eur(left)})</a>`;
+}
 function bulkAlertButton(tag) {
   const n = Object.values(COL.alerts).filter(a => a.bulk === tag).length;
   return `<button class="pill" data-bulk="${esc(tag)}" style="align-self:flex-start;font-size:13px;display:flex;align-items:center;gap:6px">${ico('bell', 16)}${n ? `Avisos activos en ${n} cartas · cambiar` : 'Avisarme si baja lo que me falta'}</button>`;
@@ -1302,7 +1306,8 @@ function viewWishlist() {
   const total = list.reduce((t, a) => t + (a.now || 0), 0);
   const hits = list.filter(a => a.hit), hitsCost = hits.reduce((t, a) => t + (a.now || 0), 0);
   const lowTotal = list.reduce((t, a) => t + (a.low ?? a.now ?? 0), 0);
-  $view.innerHTML = `<div class="stack"><h1>Lista de deseos</h1>
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Lista de deseos</h1></div>
+    ${(() => { const nb = Object.values(COL.alerts).filter(a => a.bulk).length; return nb ? `<button class="pill" id="unbulk" style="align-self:flex-start">Quitar las ${nb} que se añadieron de golpe (sin precio objetivo propio)</button>` : ''; })()}
     ${list.length ? `<div class="card col" style="gap:6px"><span class="muted">${list.length} carta${list.length > 1 ? 's' : ''} · comprarlo todo hoy</span>
       <div class="big">${eur(total)}</div>
       <span class="muted">Al precio mínimo publicado: <b style="color:var(--tx)">${eur(lowTotal)}</b>${hits.length ? ` · <span class="up">${hits.length} ya ${hits.length > 1 ? 'están' : 'está'} en tu objetivo (${eur(hitsCost)})</span>` : ''}</span></div>
@@ -1317,6 +1322,7 @@ function viewWishlist() {
     <p class="muted">Ordenadas de la más cercana a tu objetivo a la más lejana. "✓" la pasa a tu colección y apunta la compra en tus gastos.</p>
     ${sealedWatchSection()}</div>`;
   if (!SHOPS && Object.keys(COL.sealedAlerts || {}).length) loadShops().then(() => { const el = document.getElementById('swl'); if (el && location.hash === '#/wish') el.outerHTML = sealedWatchSection(); });
+  const ub = document.getElementById('unbulk'); if (ub) ub.onclick = () => { const ks = Object.keys(COL.alerts).filter(k => COL.alerts[k].bulk); if (!confirm(`¿Quitar ${ks.length} cartas de tu lista de deseos? Las que añadiste una a una se quedan.`)) return; ks.forEach(k => delete COL.alerts[k]); saveCol(); toast('Lista de deseos limpia'); viewWishlist(); };
   $view.querySelectorAll('[data-bought]').forEach(b => b.onclick = () => {
     const a = list.find(x => x.key === b.dataset.bought); if (!a) return;
     const v = prompt(`¿Cuánto has pagado por ${a.info.name}? (€)`, a.now != null ? a.now.toFixed(2).replace('.', ',') : '');
@@ -1823,7 +1829,7 @@ function buyCandidates(src) {
     if (!COL.illustrators[name]) continue;
     const { E, vmap } = ordenData(ord);
     E.forEach(e => { if (ordenOwned(name, e)) return; const p = ordenPrice(name, e, vmap); if (!p) return;
-      out.push({ k: 'o:' + key + ':' + e.o, src: 'orden', rank: e.o, name: e.n, sub: `${name} · #${e.o} · ${e.s}`, price: p, route: ordenRoute(name, e),
+      out.push({ k: 'o:' + key + ':' + e.o, src: 'orden', rank: e.o, col: 'o:' + key, colName: 'Mi orden · ' + name, name: e.n, sub: `${name} · #${e.o} · ${e.s}`, price: p, route: ordenRoute(name, e),
         link: e.cm ? cmProductLink(e.cm, 'asia') : e.id ? cmLink((vmap[e.id] || []).slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0], { card_id: e.id, region: 'asia' }) : null,
         own: () => ordenToggle(name, e, vmap), img: ordenImg(e, '', name) }); });
   }
@@ -1834,43 +1840,65 @@ function buyCandidates(src) {
         WHERE s.lang = 'es' AND c.set_id IN (${sets.map(() => '?').join(',')})`, sets).filter(c => !COL.cards[c.card_id] && !hiddenCard(c));
       const vm = variantsOf(rows.map(r => r.card_id));
       rows.forEach(c => { const v = (vm[c.card_id] || []).slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0]; const p = v && vPrice(v); if (!p) return;
-        out.push({ k: 'c:' + c.card_id, src: 'sets', rank: 1e6, name: c.name, sub: `${c.set_name} · ${c.local_id}`, price: p, route: '#/card/' + encodeURIComponent(c.card_id), link: cmLink(v, c),
+        out.push({ k: 'c:' + c.card_id, src: 'sets', rank: 1e6, col: 's:' + c.set_id, colName: c.set_name, name: c.name, sub: `${c.set_name} · ${c.local_id}`, price: p, route: '#/card/' + encodeURIComponent(c.card_id), link: cmLink(v, c),
           own: () => { COL.cards[c.card_id] = { set: c.set_id, cm: v.cm_product_id, variant: v.variant, qty: 1 }; }, img: cardImg(c, 'low', '', '') }); });
     }
   }
   return out;
 }
+/* ---------- Presupuesto: combinaciones de cartas que te faltan que caben en lo que te queda este mes ---------- */
+const OPEN_COMBO = new Set();
+function monthSpent() {
+  const m = todayISO().slice(0, 7);
+  return (COL.purchases || []).filter(p => (p.date || '').startsWith(m)).reduce((t, p) => t + (p.price || 0) * (p.type === 'single' ? 1 : 1), 0);
+}
+function greedy(items, money, max = 40) { let left = money; const pick = []; for (const it of items) { if (it.price <= left) { pick.push(it); left -= it.price; if (pick.length >= max) break; } } return pick; }
 function viewBuy() {
-  const budget = parseFloat(lsGet('buy_budget', '50')) || 0, prio = lsGet('buy_prio', 'orden');
-  const src = { orden: lsGet('buy_orden', '1') === '1', sets: lsGet('buy_sets', '1') === '1' };
-  const all = buyCandidates(src).sort(prio === 'orden' ? (a, b) => a.rank - b.rank || a.price - b.price : (a, b) => a.price - b.price);
-  let left = budget; const pick = [], skipped = [];
-  for (const it of all) { if (it.price <= left) { pick.push(it); left -= it.price; } else if (it.src === 'orden' && prio === 'orden' && skipped.length < 3) skipped.push(it); if (pick.length >= 60) break; }
-  const spent = budget - left;
-  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1>Qué comprar</h1></div>
+  const budget = parseFloat(lsGet('buy_budget', '50')) || 0, spent = monthSpent(), avail = Math.max(0, budget - spent);
+  // las de céntimos no cuentan como propuesta: se compran en lote, aparte
+  const BULK = 0.25, everything = buyCandidates({ orden: true, sets: true }), all = everything.filter(x => x.price >= BULK);
+  const bulk = everything.filter(x => x.price < BULK && x.src === 'sets'), bulkTot = bulk.reduce((t, x) => t + x.price, 0);
+  const cols = {}; all.forEach(it => { (cols[it.col] ||= { name: it.colName, items: [], bulk: 0, bulkN: 0 }).items.push(it); });
+  bulk.forEach(it => { const c = (cols[it.col] ||= { name: it.colName, items: [], bulk: 0, bulkN: 0 }); c.bulk += it.price; c.bulkN++; });
+  const fill = items => greedy(items.slice().sort((a, b) => b.price - a.price), avail);   // aprovechar el presupuesto con las que más pesan
+  const combos = [];
+  const add = (id, title, sub, items, cls = '') => { if (items.length) combos.push({ id, title, sub, items, cls, tot: items.reduce((t, x) => t + x.price, 0) }); };
+  add('mas', 'Más cartas', `Las más baratas de todas tus colecciones (desde ${eur(BULK)})`, greedy(all.slice().sort((a, b) => a.price - b.price), avail));
+  const ord = all.filter(x => x.src === 'orden').sort((a, b) => a.rank - b.rank);
+  if (ord.length) { const p = []; let left = avail; for (const it of ord) { if (it.price <= left) { p.push(it); left -= it.price; } else break; }
+    add('orden', 'Seguir Mi orden', `Las siguientes de tu lista, en orden${p.length < ord.length && !p.length ? '' : ''}`, p.length ? p : []);
+    if (!p.length) combos.push({ id: 'orden', title: 'Seguir Mi orden', sub: `La siguiente (${ord[0].name}) cuesta ${eur(ord[0].price)}: no cabe este mes`, items: [], tot: 0, cls: 'muted' }); }
+  Object.entries(cols).sort((a, b) => a[1].name.localeCompare(b[1].name, 'es')).forEach(([k, c]) =>
+    add('col:' + k, c.name, `Te faltan ${c.items.length + c.bulkN}${c.bulkN ? ` · ${c.bulkN} de céntimos (${eur(c.bulk)} en total)` : ''}`, fill(c.items)));
+  const big = all.filter(x => x.price <= avail).sort((a, b) => b.price - a.price)[0];
+  if (big) add('capricho', 'Un capricho', 'La carta más cara que te falta y cabe', [big], 'gold');
+  $view.innerHTML = `<div class="stack"><h1>Presupuesto</h1>
     <div class="card col" style="gap:10px">
-      <label class="f" for="bud">Tu presupuesto este mes (€)</label>
-      <input type="number" id="bud" min="0" step="5" value="${budget}" inputmode="decimal">
-      <div class="tbrow">${seg('prio', [['orden', 'Mi orden primero'], ['cheap', 'Más baratas']], prio)}</div>
-      <div class="tbrow">${seg('so', [['1', 'Mi orden']], src.orden ? '1' : '')}${seg('ss', [['1', 'Mis sets']], src.sets ? '1' : '')}<span></span></div>
-      <span class="muted">"Mi orden" son las listas de los ilustradores que sigues; "Mis sets", lo que te falta de los sets en español que ya has empezado.</span></div>
-    <div class="card col" style="gap:4px"><div class="between"><b>${pick.length} carta${pick.length === 1 ? '' : 's'}</b><b class="up" style="font-size:22px">${eur(spent)}</b></div>
-      <span class="muted">Te sobran ${eur(left)} de ${eur(budget)} · precio: ${PRICE_LABEL().toLowerCase()}</span>
-      ${skipped.length ? `<span class="muted" style="color:var(--down)">No caben con este presupuesto: ${skipped.map(x => `${esc(x.name)} (${eur(x.price)})`).join(', ')}</span>` : ''}</div>
-    <div class="list">${pick.map((it, i) => `<div class="item"><a href="${esc(it.route)}" style="display:flex;gap:12px;align-items:center;flex:1;color:var(--tx);min-width:0">
-        <div class="thumb">${it.img}</div><div class="col" style="flex:1;min-width:0"><b>${esc(it.name)}</b><span class="muted">${esc(it.sub)}</span></div><b>${eur(it.price)}</b></a>
+      <div class="row" style="gap:10px;align-items:flex-end"><label class="f" style="flex:1">Presupuesto al mes (€)<input type="number" id="bud" min="0" step="5" value="${budget}" inputmode="decimal"></label></div>
+      <div class="kpis"><div><span class="muted">Llevas gastado este mes</span><b>${eur(spent)}</b></div><div><span class="muted">Te queda</span><b class="${avail > 0 ? 'up' : 'down'}">${eur(avail)}</b></div></div>
+      <span class="muted" style="font-size:12px">Lo gastado sale de tus gastos apuntados este mes. Propuestas con lo que te falta de tus sets en español empezados y de Mi orden. En cada colección, las que más pesan primero, hasta llenar lo que te queda.</span></div>
+    ${bulk.length ? `<div class="card col" style="gap:4px"><b>${bulk.length} cartas de céntimos</b><span class="muted">Te faltan ${bulk.length} cartas de menos de ${eur(BULK)} en tus sets (${eur(bulkTot)} en total). Mejor añadirlas a un pedido grande o comprarlas en lote.</span></div>` : ''}
+    ${avail <= 0 ? '<div class="card"><b>Este mes ya has llegado a tu presupuesto.</b><span class="muted"> Sube el presupuesto o espera al mes que viene.</span></div>' : ''}
+    ${combos.map((c, i) => `<details class="combo ${c.cls}" data-ci="${i}" ${OPEN_COMBO.has(c.id) ? 'open' : ''}><summary><div class="col" style="flex:1;min-width:0;gap:2px"><b class="ell">${esc(c.title)}</b><span class="muted ell">${esc(c.sub)}</span></div>
+      ${c.items.length ? `<div class="col" style="align-items:flex-end;gap:2px"><b>${c.items.length} carta${c.items.length > 1 ? 's' : ''}</b><span class="muted">${eur(c.tot)}</span></div>` : ''}${ico('chev', 16, 'flip')}</summary>
+      ${c.items.length ? `<div class="list">${c.items.map((it, j) => `<div class="item"><a href="${esc(it.route)}" style="display:flex;gap:12px;align-items:center;flex:1;color:var(--tx);min-width:0">
+        <div class="thumb">${it.img}</div><div class="col" style="flex:1;min-width:0"><b class="ell">${esc(it.name)}</b><span class="muted ell">${esc(it.sub)}</span></div><b>${eur(it.price)}</b></a>
         ${it.link ? `<a class="pill" target="_blank" rel="noopener" href="${esc(it.link)}" aria-label="Ver en Cardmarket" style="display:flex;align-items:center">↗</a>` : ''}
-        <button class="pill" data-got="${i}" aria-label="La he comprado">✓</button></div>`).join('') || '<p class="muted">No hay nada que proponer: sube el presupuesto o activa otra fuente.</p>'}</div>
-    <p class="muted">"↗" abre la carta en Cardmarket filtrada por idioma y estado. "✓" la pasa a tu colección y apunta lo que pagaste en tus gastos.</p></div>`;
+        <button class="pill" data-got="${i}:${j}" aria-label="La he comprado">✓</button></div>`).join('')}</div>
+        <button class="btn sec" data-gotall="${i}">Las he comprado todas</button>` : ''}</details>`).join('')}
+    ${!combos.length && avail > 0 ? '<p class="muted">No hay nada que proponer. Empieza un set en español o sigue a un ilustrador.</p>' : ''}
+    <p class="muted" style="font-size:12px">"↗" abre la carta en Cardmarket filtrada por idioma y estado. "✓" la pasa a tu colección y apunta lo que pagaste en tus gastos. Precio: ${PRICE_LABEL().toLowerCase()}.</p>
+    <a class="pill" href="#/wish" style="align-self:flex-start">Ver mi lista de deseos y avisos de precio</a></div>`;
   const bud = document.getElementById('bud'); bud.onchange = () => { lsSet('buy_budget', bud.value); viewBuy(); };
-  $view.querySelectorAll('[data-prio]').forEach(b => b.onclick = () => { lsSet('buy_prio', b.dataset.prio); viewBuy(); });
-  $view.querySelectorAll('[data-so]').forEach(b => b.onclick = () => { lsSet('buy_orden', src.orden ? '0' : '1'); viewBuy(); });
-  $view.querySelectorAll('[data-ss]').forEach(b => b.onclick = () => { lsSet('buy_sets', src.sets ? '0' : '1'); viewBuy(); });
-  $view.querySelectorAll('[data-got]').forEach(b => b.onclick = () => { const it = pick[+b.dataset.got];
+  $view.querySelectorAll('details.combo').forEach(d => d.ontoggle = () => { const id = combos[+d.dataset.ci].id; if (d.open) OPEN_COMBO.add(id); else OPEN_COMBO.delete(id); });
+  const bought = (it, price) => { it.own(); COL.purchases.push({ id: Date.now() + Math.random(), date: todayISO(), type: 'single', desc: it.name + ' · ' + it.sub, qty: 1, price, shop: 'Cardmarket' }); };
+  $view.querySelectorAll('[data-got]').forEach(b => b.onclick = () => { const [i, j] = b.dataset.got.split(':').map(Number), it = combos[i].items[j];
     const v = prompt(`¿Cuánto has pagado por ${it.name}? (€)`, it.price.toFixed(2).replace('.', ',')); if (v === null) return;
-    const price = parseFloat(String(v).replace(',', '.')) || null;
-    it.own(); COL.purchases.push({ id: Date.now(), date: new Date().toISOString().slice(0, 10), type: 'single', desc: it.name + ' · ' + it.sub, qty: 1, price, shop: 'Cardmarket' });
-    saveCol(); toast('Añadida a tu colección y a tus gastos'); viewBuy(); });
+    bought(it, parseNum(v)); saveCol(); toast('Añadida a tu colección y a tus gastos'); viewBuy(); });
+  $view.querySelectorAll('[data-gotall]').forEach(b => b.onclick = () => { const c = combos[+b.dataset.gotall];
+    const v = prompt(`¿Cuánto has pagado en total por las ${c.items.length} cartas? (€)`, c.tot.toFixed(2).replace('.', ',')); if (v === null) return;
+    const tot = parseNum(v) ?? c.tot, k = c.tot ? tot / c.tot : 1;
+    c.items.forEach(it => bought(it, Math.round(it.price * k * 100) / 100)); saveCol(); toast(`${c.items.length} cartas añadidas a tu colección y a tus gastos`); viewBuy(); });
 }
 /* ---------- colores de tipo (Pokédex en español y tipos del juego de cartas) ---------- */
 const TYPE_COLOR = { Normal: '#A8A77A', Fuego: '#EE8130', Agua: '#6390F0', Planta: '#7AC74C', 'Eléctrico': '#F7D02C', Hielo: '#96D9D6', Lucha: '#C22E28', Veneno: '#A33EA1',
@@ -2148,7 +2176,7 @@ function viewMore() {
       ${grow('#/sealed', 'box', '#C79A3A', 'Sellado', pl(n('sealed'), 'producto', 'productos'))}
       ${grow('#/aperturas', 'present', '#E0752B', 'Aperturas', pl((COL.openings || []).length, 'apertura apuntada', 'aperturas apuntadas') + ' · tu suerte')}</div></div>
     <div class="gsec"><span class="ghead">Comprar y vender</span><div class="group">
-      ${grow('#/buy', 'cart', '#2FB57A', 'Qué comprar este mes', 'Reparte tu presupuesto entre lo que te falta')}
+      ${grow('#/wish', 'heart', '#E0526B', 'Lista de deseos', 'Cartas que quieres y avisos de precio')}
       ${grow('#/ofertas', 'tag', '#E3B341', 'Ofertas de sellado', 'Lo que hoy está barato en tiendas españolas')}
       ${grow('#/calendario', 'calendar', '#E2465B', 'Lanzamientos', 'Próximos sets en España, con cuenta atrás')}
       ${grow('#/expenses', 'wallet', '#3A7BD5', 'Gastos', pl(COL.purchases.length, 'compra apuntada', 'compras apuntadas'))}
@@ -2476,7 +2504,7 @@ function route() {
   ordenAuto();
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   const [, a, b] = h.split('/');
-  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', scan: 'search', dex: 'sets', stats: 'more', calendario: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more', ofertas: 'more', envios: 'more', abrir: 'more', aperturas: 'more', intercambio: 'more', i: 'more' }[a || ''] || 'home';
+  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'more', wish: 'more', settings: 'more', more: 'more', buy: 'buy', scan: 'search', dex: 'sets', stats: 'more', calendario: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more', ofertas: 'more', envios: 'more', abrir: 'more', aperturas: 'more', intercambio: 'more', i: 'more' }[a || ''] || 'home';
   $tabs.querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
   window.scrollTo(0, 0);
   $view.classList.remove('vin'); void $view.offsetWidth; $view.classList.add('vin');   // entrada suave de cada pantalla
