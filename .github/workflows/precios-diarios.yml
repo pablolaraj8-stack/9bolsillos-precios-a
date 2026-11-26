@@ -71,7 +71,9 @@ jobs:
       - name: Precios del sellado en tiendas españolas
         continue-on-error: true
         run: |
-          python3 tiendas.py --db 9bolsillos.db --out tiendas.json || curl -fsSL "https://pablolaraj8-stack.github.io/9bolsillos-precios-a/tiendas.json" -o tiendas.json || true
+          curl -fsSL "https://pablolaraj8-stack.github.io/9bolsillos-precios-a/tiendas_hist.json" -o tiendas_hist_prev.json || echo '{}' > tiendas_hist_prev.json
+          python3 tiendas.py --db 9bolsillos.db --out tiendas.json --hist-prev tiendas_hist_prev.json --hist-out tiendas_hist.json || curl -fsSL "https://pablolaraj8-stack.github.io/9bolsillos-precios-a/tiendas.json" -o tiendas.json || true
+          [ -s tiendas_hist.json ] || cp tiendas_hist_prev.json tiendas_hist.json
 
       - name: Fotos de las cartas que TCGdex no tiene (CollectHolo y pokemontcg.io)
         continue-on-error: true
@@ -95,6 +97,7 @@ jobs:
           cp sellado.json _site/ 2>/dev/null || true
           cp fotos.json _site/ 2>/dev/null || true
           cp tiendas.json _site/ 2>/dev/null || true
+          cp tiendas_hist.json _site/ 2>/dev/null || true
           ls -la _site | head -40
           cat _site/version.json
 

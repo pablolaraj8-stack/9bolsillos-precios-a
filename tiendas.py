@@ -75,6 +75,8 @@ def main():
     ap.add_argument("--db", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--informe", default="")
+    ap.add_argument("--hist-prev", default="", help="historial de ayer (mínimo de cada producto por día)")
+    ap.add_argument("--hist-out", default="", help="historial actualizado")
     a = ap.parse_args()
     db = sqlite3.connect(a.db)
     sets = [(norm(n), e) for n, e in db.execute("SELECT name_es, cm_expansion_id FROM sets WHERE lang='es' AND name_es IS NOT NULL AND cm_expansion_id IS NOT NULL")]
@@ -120,6 +122,18 @@ def main():
         return (hits[0][0], ty) if len(hits) == 1 else (None, f"{len(hits)} candidatos")
 
     out, info, hoy, sueltos = {}, {}, datetime.date.today().isoformat(), []
+    preventas = []
+    proximos = []
+    try:
+        cal = open("app/calendario.js", encoding="utf-8").read()
+        for m in re.finditer(r'\{[^{}]*"fecha":\s*"([\d-]+)"[^{}]*"idioma":\s*"es"[^{}]*"nombre":\s*"([^"]+)"', cal):
+            if m.group(1) >= hoy:
+                nombre = m.group(2)
+                corto = re.sub(r"^(Megaevoluci[oó]n|Escarlata y P[uú]rpura)\s*[-–:]\s*", "", nombre)
+                proximos.append((norm(corto), nombre, m.group(1)))
+    except Exception as e:
+        print("calendario no disponible:", e)
+    PREV = re.compile(r"preventa|pre-venta|pre venta|reserva", re.I)
     for dom, nombre in TIENDAS.items():
         try:
             cat = catalogo(dom)
@@ -133,6 +147,20 @@ def main():
             # anuncios en español: lo dice el título, o usa el nombre español del set y no menciona otro idioma
             pid, why = emparejar(titulo)
             if not pid:
+                # ¿preventa de un set que aún no ha salido en español?
+                t = norm(titulo)
+                prox = next((p for p in proximos if p[0] and p[0] in t), None)
+                if prox and not FUERA.search(titulo):
+                    tipo = next((ty for ty, rx, _ in TIPOS if re.search(rx, titulo, re.I)), None)
+                    vs = p.get("variants") or [{}]
+                    try:
+                        precio = min(float(x.get("price") or 1e9) for x in vs)
+                    except Exception:
+                        precio = None
+                    if tipo and precio and precio < 1e8:
+                        preventas.append({"set": prox[1], "f": prox[2], "ty": tipo, "s": nombre, "t": titulo[:120], "p": round(precio, 2),
+                                          "a": any(x.get("available") for x in vs), "u": f"https://{dom}/products/{p.get('handle')}"})
+                    continue
                 if why != "fuera" and why != "sin set":
                     sueltos.append(f"{nombre}: {titulo} [{why}]")
                 continue
@@ -152,6 +180,24 @@ def main():
     for k in out:
         out[k].sort(key=lambda x: (not x["a"], x["p"]))
     out["_d"] = hoy
+    out["_preventas"] = sorted(preventas, key=lambda x: (x["f"], x["ty"], x["p"]))
+    print(f"Preventas: {len(preventas)} anuncios de sets que aún no han salido")
+    # historial: el precio más bajo con stock de cada producto, por día (para «mínimo de los últimos N días»)
+    if a.hist_out:
+        try:
+            hist = json.load(open(a.hist_prev, encoding="utf-8")) if a.hist_prev else {}
+        except Exception:
+            hist = {}
+        dia = hoy.replace("-", "")
+        corte = (datetime.date.today() - datetime.timedelta(days=180)).strftime("%Y%m%d")
+        for k, v in out.items():
+            if k.startswith("_"):
+                continue
+            ps = [x["p"] for x in v if x["a"]]
+            if ps:
+                hist.setdefault(k, {})[dia] = min(ps)
+        hist = {k: {d: p for d, p in v.items() if d >= corte} for k, v in hist.items()}
+        json.dump({k: v for k, v in hist.items() if v}, open(a.hist_out, "w", encoding="utf-8"), separators=(",", ":"))
     out["_tiendas"] = info
     json.dump(out, open(a.out, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
     if a.informe:

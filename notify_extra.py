@@ -7,7 +7,7 @@
 
 Cada usuario puede apagarlos en Ajustes (chollos, weeklyOff, komiyaOff en su colección).
 """
-import json, os, re, urllib.parse
+import hashlib, json, os, re, urllib.parse
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -174,7 +174,95 @@ def run(a, db, subs, users, webpush, WebPushException, claims, now, api):
                 t = '✨ Carta nueva de Tomokazu Komiya' if len(todo) == 1 else f'✨ {len(todo)} cartas nuevas de Tomokazu Komiya'
                 if P.send(uid, t, '\n'.join(lines), site + '/#/illustrator/' + urllib.parse.quote('Tomokazu Komiya'), '9b-komiya'):
                     P.log(uid, [('kom:' + r[0], 0) for r in todo], now)
+        # 5) cartas que te faltan, rebajadas (sets en español que tienes empezados)
+        if not d.get('radarOff'):
+            hits, clear = radar(db, d), []
+            keys = {h[0] for h in hits}
+            clear = [k for (u, k) in logs if u == uid and k.startswith('rd:') and k not in keys]
+            P.unlog(uid, clear)
+            new = [h for h in hits if logs.get((uid, h[0])) is None or h[2] <= logs[(uid, h[0])] * 0.95]
+            if new:
+                new.sort(key=lambda h: h[3])
+                lines = [f'{n} ({sn}): {eur(pr)} (−{round(-dif * 100)} %)' for _, n, pr, dif, sn in new[:4]] + ([f'y {len(new) - 4} más'] if len(new) > 4 else [])
+                t = '📉 Una carta que te falta está rebajada' if len(new) == 1 else f'📉 {len(new)} cartas que te faltan, rebajadas'
+                if P.send(uid, t, '\n'.join(lines), site + '/#/buy', '9b-radar'):
+                    P.log(uid, [(k, pr) for k, _, pr, _, _ in new], now)
+
+        # 6) preventas de sets nuevos en español
+        if not d.get('preventaOff'):
+            pv = [x for x in (shops.get('_preventas') or []) if x.get('a')]
+            new = [x for x in pv if (uid, 'pv:' + hashlib.md5(x['u'].encode()).hexdigest()[:16]) not in logs]
+            if new:
+                by = {}
+                for x in new:
+                    by.setdefault((x['set'], x['ty']), []).append(x)
+                lines = []
+                for (st, ty), xs in sorted(by.items()):
+                    b = min(xs, key=lambda x: x['p'] + ship(x['s'], x['p'], envio))
+                    lines.append(f"{TIPO.get(ty, ty)} {st}: desde {eur(b['p'] + ship(b['s'], b['p'], envio))} en {b['s']}")
+                sets_ = sorted({x['set'] for x in new})
+                if P.send(uid, '🆕 Preventa: ' + ', '.join(sets_), '\n'.join(lines[:5]), site + '/#/ofertas', '9b-preventa'):
+                    P.log(uid, [('pv:' + hashlib.md5(x['u'].encode()).hexdigest()[:16], x['p']) for x in new], now)
+
+        # 7) metas: el día 1 de cada mes
+        if madrid.day == 1 and d.get('goals') and not d.get('goalsOff'):
+            key = 'goal:' + madrid.strftime('%Y-%m')
+            if (uid, key) not in logs:
+                body = goals(db, d)
+                if body and P.send(uid, '🎯 Cómo van tus metas', body, site + '/#/metas', '9b-metas'):
+                    P.log(uid, [(key, 0)], now)
     return P.sent
+
+
+TIPO = {'etb': 'ETB', 'etbpc': 'ETB Pokémon Center', 'box': 'Caja de sobres', 'box18': 'Caja de 18 sobres', 'bundle': 'Lote de 6 sobres', 'bb': 'Combina y Combate',
+        'blister': 'Blíster', 'pack': 'Sobre'}
+
+
+def radar(db, d):
+    """Cartas que te faltan de tus sets en español empezados, hoy un 15 % o más por debajo de su media de 30 días (desde 2 €)."""
+    cards = d.get('cards') or {}
+    sets = {e.get('set') for e in cards.values() if e.get('set')}
+    if not sets:
+        return []
+    q = f"""SELECT c.card_id, COALESCE(c.name_es, c.name_en), COALESCE(s.name_es, s.name_en), v.variant, p.trend, p.avg30, p.trend_holo, p.avg30_holo
+        FROM cards c JOIN sets s USING(set_id) JOIN card_variants v ON v.card_id = c.card_id JOIN prices p ON p.cm_product_id = v.cm_product_id
+        WHERE s.lang = 'es' AND c.set_id IN ({','.join('?' * len(sets))})"""
+    best = {}
+    for cid, n, sn, var, tr, a30, trh, a30h in db.execute(q, list(sets)):
+        if cid in cards:
+            continue
+        rev = 'rev' in (var or '').lower()
+        t, a = (trh, a30h) if rev else (tr, a30)
+        if t is None or not a:
+            continue
+        if cid not in best or t < best[cid][0]:
+            best[cid] = (t, a, n, sn)
+    out = []
+    for cid, (t, a, n, sn) in best.items():
+        if t >= 2 and t <= a * 0.85:
+            out.append(('rd:' + cid, n, t, t / a - 1, sn))
+    return out
+
+
+def goals(db, d):
+    lines = []
+    cards = d.get('cards') or {}
+    try:
+        txt = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app', 'orden.js'), encoding='utf-8').read()
+        kom_ids = set(re.findall(r'"id":"([^"]+)"', txt))
+        kom_cms = set(re.findall(r'"cm":(\d+)', txt))
+    except Exception:
+        kom_ids, kom_cms = set(), set()
+    for g in d.get('goals') or []:
+        if g.get('type') == 'set':
+            r = db.execute("SELECT COALESCE(name_es, name_en) FROM sets WHERE set_id=?", (g.get('set'),)).fetchone()
+            ids = [x[0] for x in db.execute('SELECT card_id FROM cards WHERE set_id=?', (g.get('set'),))]
+            have = sum(1 for i in ids if i in cards)
+            lines.append(f"{r[0] if r else g.get('set')}: {have} de {len(ids)} ({round(have / len(ids) * 100) if ids else 0} %), meta {g.get('year')}")
+        elif g.get('type') == 'kom':
+            have = sum(1 for i in kom_ids if i in cards) + sum(1 for c in kom_cms if c in (d.get('extra') or {}))
+            lines.append(f"Komiya {g.get('year')}: {have - (g.get('base') or 0)} de {g.get('target')} nuevas")
+    return '\n'.join(lines)
 
 
 def komiya_new(db):
