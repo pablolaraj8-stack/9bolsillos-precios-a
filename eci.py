@@ -1,8 +1,12 @@
-import urllib.request
-UA = {"User-Agent": "9Bolsillos/1.0 (app personal; compara precios una vez al día)", "Accept-Language": "es-ES"}
-for name, u in [("eci_robots.txt", "https://www.elcorteingles.es/robots.txt"),
-                ("eci_search.html", "https://www.elcorteingles.es/search-nwx/1/?s=pokemon+caja+entrenador+elite")]:
+import urllib.request, gzip
+UA = {"User-Agent": "9Bolsillos/1.0 (app personal; compara precios una vez al día)", "Accept-Language": "es-ES", "Accept-Encoding": "gzip"}
+for name, u in [("eci_cat.html", "https://www.elcorteingles.es/juguetes/pokemon/"),
+                ("eci_cat2.html", "https://www.elcorteingles.es/juguetes/juegos-de-cartas-coleccionables/")]:
     try:
-        open(name, "wb").write(urllib.request.urlopen(urllib.request.Request(u, headers=UA), timeout=25).read())
+        r = urllib.request.urlopen(urllib.request.Request(u, headers=UA), timeout=25)
+        b = r.read()
+        try: b = gzip.decompress(b)
+        except Exception: pass
+        open(name, "wb").write(f"STATUS {r.status} URL {r.url}\n".encode() + b)
     except Exception as e:
         open(name, "w").write(str(e))
