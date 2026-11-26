@@ -15,6 +15,7 @@ ap.add_argument("--db", required=True)
 ap.add_argument("--out", required=True)
 ap.add_argument("--days", type=int, default=21)
 ap.add_argument("--sellado", default="sellado.json", help="fotos del producto sellado (sellado.py)")
+ap.add_argument("--fotos", default="fotos.json", help="fotos de cartas que TCGdex no tiene (fotos.py)")
 a = ap.parse_args()
 os.makedirs(a.out, exist_ok=True)
 db = sqlite3.connect(a.db)
@@ -101,6 +102,13 @@ def collectholo_fill():
     print(f"CollectHolo: {len(logos)} logos, {len(imgs)} imágenes de cartas ({len(recent)} sets recientes)")
     return logos, imgs
 _logos, _imgs = collectholo_fill()
+if os.path.exists(a.fotos):
+    try:
+        _f = {k: v for k, v in json.load(open(a.fotos, encoding="utf-8")).items() if k != "_v" and v}
+        _imgs = {**_f, **_imgs}
+        print(f"Fotos de otras fuentes: {len(_f)} cartas")
+    except Exception as e:
+        print("fotos.json no válido:", e)
 
 # Las imágenes se descargan y se publican junto a la web: el iPhone no muestra las enlazadas
 # directamente desde CollectHolo. Si una descarga falla, se deja el enlace original.
@@ -110,16 +118,19 @@ def self_host(urls, sub):
         key, url = item
         ext = os.path.splitext(url.split("?")[0])[1] or ".webp"
         rel = f"img/{sub}/{re.sub(r'[^A-Za-z0-9_-]', '_', os.path.splitext(key)[0] if key.endswith(ext) else key)}{ext}"
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "9Bolsillos/1.0 (uso personal)"})
-            data = urllib.request.urlopen(req, timeout=30).read()
-            if len(data) < 200: return key, url
-            os.makedirs(os.path.dirname(os.path.join(a.out, rel)), exist_ok=True)
-            with open(os.path.join(a.out, rel), "wb") as fh: fh.write(data)
-            return key, rel
-        except Exception:
-            return key, url
-    with concurrent.futures.ThreadPoolExecutor(4) as ex:
+        # Primero la copia que ya publicamos (no se vuelve a pedir a la fuente cada día), si no, la fuente
+        for src in ("https://pablolaraj8-stack.github.io/9bolsillos-precios-a/" + rel, url):
+            try:
+                req = urllib.request.Request(src, headers={"User-Agent": "9Bolsillos/1.0 (uso personal)"})
+                data = urllib.request.urlopen(req, timeout=30).read()
+                if len(data) < 200: continue
+                os.makedirs(os.path.dirname(os.path.join(a.out, rel)), exist_ok=True)
+                with open(os.path.join(a.out, rel), "wb") as fh: fh.write(data)
+                return key, rel
+            except Exception:
+                pass
+        return key, url
+    with concurrent.futures.ThreadPoolExecutor(8) as ex:
         out = dict(ex.map(one, urls.items()))
     print(f"Imágenes {sub}: {sum(1 for v in out.values() if v.startswith('img/'))}/{len(out)} publicadas en la web")
     return out
@@ -153,7 +164,7 @@ if os.path.exists(a.sellado):
         local = dict(ex.map(_baja, todas))
     for k, v in S.items():
         if k.startswith("_"): continue
-        fs = [{"t": f["t"], "n": f["n"], "u": local.get(f["u"])} for f in v.get("fotos", []) if local.get(f["u"])]
+        fs = [{"t": f["t"], "n": f["n"], "u": local.get(f["u"]), **({"en": 1} if f.get("en") else {})} for f in v.get("fotos", []) if local.get(f["u"])]
         if fs: _sellado[k] = fs
     print(f"Fotos de sellado: {sum(1 for x in local.values() if x)}/{len(todas)} publicadas · {len(_sellado)} sets")
 with open(os.path.join(a.out, "logos.js"), "w", encoding="utf-8") as f:

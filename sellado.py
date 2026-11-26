@@ -10,8 +10,8 @@ import argparse, datetime, json, re, sqlite3, time, unicodedata, urllib.parse, u
 
 API = "https://www.wikidex.net/api.php"
 UA = {"User-Agent": "9Bolsillos/1.0 (app personal de coleccion Pokemon; github.com/pablolaraj8-stack/9bolsillos-precios-a)"}
-VERSION = 2
-BUSQUEDA = 3   # sube este número para volver a buscar ya mismo los sets que se quedaron sin fotos
+VERSION = 3   # 3: se añaden fotos de TCGplayer (edición inglesa) a los tipos que WikiDex no tiene
+BUSQUEDA = 4   # sube este número para volver a buscar ya mismo los sets que se quedaron sin fotos
 # tipo de producto según el nombre del archivo en WikiDex (en español)
 TIPOS = [
     ("etbpc", r"Caja de Entrenador [ÉE]lite.*Pok[ée]mon Center|Pok[ée]mon Center.*Caja de Entrenador"),
@@ -26,6 +26,69 @@ TIPOS = [
     ("booster", r"^Sobre "),
 ]
 FUERA = re.compile(r"TCG\)|Logo|S[íi]mbolo|Icono|Promo|Rareza|Ilustraci[óo]n|\.svg$", re.I)
+
+
+# TCGplayer (edición inglesa, vía el catálogo público de tcgcsv.com): solo para los tipos que WikiDex no tiene
+TCGCSV = "https://tcgcsv.com/tcgplayer/3"
+TIPOS_EN = [
+    ("etbpc", r"Pok[ée]mon Center.*Elite Trainer Box"),
+    ("etb", r"Elite Trainer Box"),
+    ("bb", r"Build (&|and) Battle"),
+    ("box", r"Booster Box|Booster Display"),
+    ("bundle", r"Booster Bundle"),
+    ("blister", r"Blister|Checklane|3 Pack|3-Pack|Three"),
+    ("tin", r"\bTin\b"),
+    ("premium", r"Premium Collection|Special Collection|\bCollection\b"),
+    ("deck", r"Theme Deck|League Battle Deck|Battle Deck"),
+    ("booster", r"Booster Pack|Sleeved Booster"),
+]
+FUERA_EN = re.compile(r"\bCase\b|Code Card|Bundle Case|Display Case|Art Bundle|Set of|\[Set", re.I)
+_GRUPOS = None
+
+
+def tcgcsv(path):
+    u = f"{TCGCSV}/{path}"
+    return json.loads(urllib.request.urlopen(urllib.request.Request(u, headers=UA), timeout=40).read())
+
+
+def _n(t):
+    return re.sub(r"[^a-z0-9]", "", re.sub(r"\s*&\s*", " and ", (t or "").lower()))
+
+
+def tcgplayer(nombre_en, fecha, ya):
+    global _GRUPOS
+    if _GRUPOS is None:
+        _GRUPOS = tcgcsv("groups").get("results", [])
+        time.sleep(0.5)
+    objetivo = _n(nombre_en)
+    if not objetivo:
+        return []
+    # TCGplayer antepone la serie: «SV08: Surging Sparks», «SM - Burning Shadows», «XY - Roaring Skies»
+    cands = [g for g in _GRUPOS if _n(g.get("name", "")).endswith(objetivo)]
+    if not cands:
+        return []
+    def gap(g):
+        try:
+            return abs((datetime.date.fromisoformat(g.get("publishedOn", "")[:10]) - datetime.date.fromisoformat(fecha[:10])).days)
+        except Exception:
+            return 9999
+    g = min(cands, key=gap)
+    if gap(g) > 200:
+        return []
+    prods = tcgcsv(f"{g['groupId']}/products").get("results", [])
+    time.sleep(0.5)
+    out = []
+    for pr in prods:
+        name = pr.get("name") or ""
+        if any(e.get("name") == "Number" for e in pr.get("extendedData") or []):
+            continue  # es una carta, no producto sellado
+        if FUERA_EN.search(name) or not pr.get("imageUrl"):
+            continue
+        t = next((t for t, rx in TIPOS_EN if re.search(rx, name, re.I)), None)
+        if not t or t in ya:
+            continue
+        out.append({"t": t, "n": name, "u": pr["imageUrl"].replace("_200w.", "_400w."), "en": 1})
+    return out
 
 
 def api(params):
@@ -47,7 +110,18 @@ def norm(t):
     return re.sub(r"[^a-z0-9]+", " ", t).strip()
 
 
-def buscar(nombre_set, pause=1.0):
+def buscar(nombre_set, nombre_en=None, fecha="", pause=1.0):
+    out = buscar_wikidex(nombre_set, pause)
+    if nombre_en:
+        try:
+            out += tcgplayer(nombre_en, fecha or "", {x["t"] for x in out})
+        except Exception as e:
+            print("TCGplayer no ha respondido para", nombre_en, e)
+    orden = [t for t, _ in TIPOS]
+    return sorted(out, key=lambda x: (orden.index(x["t"]), x.get("en", 0), x["n"]))
+
+
+def buscar_wikidex(nombre_set, pause=1.0):
     files = []
     # 1) archivos cuyo nombre EMPIEZA por el nombre del set (p. ej. «Celebración 30.º Aniversario Caja de Entrenador Élite.png»).
     #    Es una lista exacta, no depende del buscador, así que no falla con signos como «30.º».
@@ -96,8 +170,7 @@ def buscar(nombre_set, pause=1.0):
             u = urls.get(renom.get(f, f))
             if u:
                 out.append({"t": t, "n": n, "u": u})
-    orden = [t for t, _ in TIPOS]
-    return sorted(out, key=lambda x: (orden.index(x["t"]), x["n"]))
+    return out
 
 
 def main():
@@ -119,11 +192,11 @@ def main():
     hoy = datetime.date.today().isoformat()
     mes = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
     db = sqlite3.connect(a.db)
-    sets = db.execute("""SELECT s.set_id, s.name_es FROM sets s WHERE s.lang = 'es' AND s.name_es IS NOT NULL AND s.cm_expansion_id IS NOT NULL
+    sets = db.execute("""SELECT s.set_id, s.name_es, s.name_en, s.release_date FROM sets s WHERE s.lang = 'es' AND s.name_es IS NOT NULL AND s.cm_expansion_id IS NOT NULL
         AND EXISTS (SELECT 1 FROM cm_products p WHERE p.kind = 'sealed' AND p.cm_expansion_id = s.cm_expansion_id)
         ORDER BY s.release_date DESC""").fetchall()
     out, hechos = {"_v": VERSION, "_b": BUSQUEDA}, 0
-    for sid, nombre in sets:
+    for sid, nombre, nombre_en, fecha in sets:
         p = prev.get(sid)
         if p and (p.get("fotos") or p.get("d", "") > mes):
             out[sid] = p
@@ -133,7 +206,7 @@ def main():
                 out[sid] = p
             continue
         try:
-            fotos = buscar(nombre)
+            fotos = buscar(nombre, nombre_en, fecha)
         except Exception as e:
             print("WikiDex no ha respondido para", nombre, e)
             if p:
@@ -143,7 +216,7 @@ def main():
         out[sid] = {"d": hoy, "fotos": fotos}
     json.dump(out, open(a.out, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
     con = sum(1 for k, v in out.items() if not k.startswith("_") and v.get("fotos"))
-    print(f"Sellado: {len(sets)} sets en español con producto · {con} con fotos de WikiDex · {hechos} consultados hoy")
+    print(f"Sellado: {len(sets)} sets en español con producto · {con} con fotos (WikiDex + TCGplayer) · {hechos} consultados hoy")
 
 
 if __name__ == "__main__":

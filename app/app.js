@@ -685,13 +685,13 @@ function sealedPhoto(x) {
   const t = cmSealedType(x) || 'other', ph = photosFor(x.cm_expansion_id); if (!ph.length) return null;
   const score = f => photoScore(x, f);
   const strict = ['blister', 'tin', 'premium', 'deck'].includes(t);   // aquí cada producto es distinto: solo foto si coincide el Pokémon
-  const pick = (ty) => ph.filter(f => f.t === ty && (!strict || ty !== t || score(f) >= 2)).sort((a, b) => score(b) - score(a))[0];
+  const pick = (ty) => ph.filter(f => f.t === ty && (!strict || ty !== t || score(f) >= 2)).sort((a, b) => score(b) - score(a) || (a.en || 0) - (b.en || 0))[0];   // a igualdad, la foto española
   return pick(t) || (t === 'etbpc' ? pick('etb') : null) || (['box', 'bundle'].includes(t) ? pick('booster') : null);
 }
 function sealedEsName(x, setName) {
   const t = cmSealedType(x) || 'other', n = x.name || '', ph = sealedPhoto(x);
   const specific = ['blister', 'tin', 'premium', 'booster', 'deck'].includes(t);
-  if (ph && ph.t === t && (!specific || photoScore(x, ph) >= 2) && !/Pok[ée]mon Center|Sleeved/i.test(n)) return ph.n;
+  if (ph && !ph.en && ph.t === t && (!specific || photoScore(x, ph) >= 2) && !/Pok[ée]mon Center|Sleeved/i.test(n)) return ph.n;
   const extra = [];
   let who = (n.includes(':') ? n.split(':').slice(1).join(':') : '').replace(/Premium Checklane|Blister|\d+-Pack|Mini Tin|Tin|Premium Collection|Collection|Box|Pok[ée]mon Center/gi, '').replace(/\s{2,}/g, ' ').trim();
   if (who) extra.push(who);
