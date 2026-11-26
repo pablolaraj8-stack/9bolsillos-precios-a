@@ -1489,14 +1489,23 @@ function viewSealed(embed = false) {   // embed: dentro de Colección, en la pes
 /* ---------- precios del sellado en tiendas españolas (tiendas.py, cada día) ---------- */
 let SHOPS = null, SHOPS_P = null;
 const loadShops = () => SHOPS_P ||= fetch('tiendas.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : {}).catch(() => ({})).then(d => (SHOPS = d));
+// Gastos de envío a península (Madrid). c = coste, f = gratis desde. Los que no publica la tienda son aproximados y los puedes corregir.
+const ENVIO_DEF = { 'Toy Planet': { c: 4.95, f: 59.99, e: 0 }, 'Metamorph Center': { c: 4.95, f: 200, e: 1 }, 'CardZone': { c: 4.95, f: 200, e: 1 }, 'Central TCG': { c: 4.95, f: 150, e: 1 },
+  'AllinTCG': { c: 4.95, f: 200, e: 1 }, 'Pokemillon': { c: 4.95, f: 180, e: 1 }, 'Alfriki': { c: 4.95, f: 180, e: 1 }, 'JJCollection': { c: 4.95, f: 150, e: 1 }, 'Darizard9': { c: 9.99, f: null, e: 1 } };
+const CM_SHIP = { c: 6, e: 1 };   // Cardmarket: depende del vendedor; envío con seguimiento de una caja, aproximado
+const envioOf = shop => Object.assign({ c: 4.95, f: null, e: 1 }, ENVIO_DEF[shop] || {}, ((COL.envio || {})[shop]) ? Object.assign({ e: 0 }, COL.envio[shop]) : {});
+const shipFor = (shop, p) => { const e = envioOf(shop); return e.f != null && p >= e.f ? 0 : e.c; };
 const median = a => { const b = a.filter(x => x != null).sort((x, y) => x - y); return b.length ? (b.length % 2 ? b[(b.length - 1) / 2] : (b[b.length / 2 - 1] + b[b.length / 2]) / 2) : null; };
 // Lo normal hoy: la mediana entre la tendencia de Cardmarket y lo que piden las tiendas con stock
 function shopInfo(x) {
   // Un precio muy lejos de Cardmarket suele ser otro producto (un lote, una caja de 10…): fuera
   const tr = x.trend ?? x.avg30 ?? null;
-  const offers = ((SHOPS || {})[x.cm_product_id] || []).filter(o => tr == null || (o.p <= tr * 2.5 && o.p >= tr * 0.4));
+  const offers = ((SHOPS || {})[x.cm_product_id] || []).filter(o => tr == null || (o.p <= tr * 2.5 && o.p >= tr * 0.4))
+    .map(o => Object.assign({}, o, { env: shipFor(o.s, o.p), tot: Math.round((o.p + shipFor(o.s, o.p)) * 100) / 100 }))
+    .sort((a, b) => (!a.a) - (!b.a) || a.tot - b.tot);
   const inStock = offers.filter(o => o.a);
-  const ref = median([x.trend ?? x.avg30 ?? null, ...inStock.map(o => o.p)]);
+  // todo con envío a casa: lo que de verdad te cuesta
+  const ref = median([tr != null ? tr + CM_SHIP.c : null, ...inStock.map(o => o.tot)]);
   return { offers, inStock, ref, best: inStock[0] || null };
 }
 const RATE = { good: ['Buen precio', 'good'], mid: ['Precio medio', 'mid'], high: ['Sobreprecio', 'high'] };
@@ -1505,29 +1514,46 @@ const rateChip = (r, extra = '') => r ? `<span class="rate ${RATE[r][1]}">${RATE
 function shopsSection(x) {
   if (!SHOPS) return '<div class="card"><span class="muted">Cargando precios de tiendas…</span></div>';
   const { offers, ref, best } = shopInfo(x);
-  const cmRow = x.low != null ? `<a class="shoprow" target="_blank" rel="noopener" href="${esc(cmSealedLink(x))}"><div class="col" style="flex:1;min-width:0"><b>Cardmarket</b><span class="muted ell">Oferta más baja (cualquier idioma)</span></div><div class="col" style="align-items:flex-end;gap:3px"><b>${eur(x.low)}</b>${rateChip(rateOf(x.low, ref))}</div></a>` : '';
+  const cmTot = x.low != null ? x.low + CM_SHIP.c : null;
+  const cmRow = x.low != null ? `<a class="shoprow" target="_blank" rel="noopener" href="${esc(cmSealedLink(x))}"><div class="col" style="flex:1;min-width:0"><b>Cardmarket</b><span class="muted ell">Oferta más baja (cualquier idioma) · ${eur(x.low)} + ≈${eur(CM_SHIP.c)} envío</span></div><div class="col" style="align-items:flex-end;gap:3px"><b>${eur(cmTot)}</b>${rateChip(rateOf(cmTot, ref))}</div></a>` : '';
+  const envTxt = o => { const e = envioOf(o.s); return o.env ? `${eur(o.p)} + ${e.e ? '≈' : ''}${eur(o.env)} envío` : 'envío gratis'; };
   const nT = Object.keys(SHOPS._tiendas || {}).length;
   if (!offers.length) return `<div class="card col" style="gap:8px"><b>Dónde comprarlo en España</b><span class="muted">Ninguna de las ${nT} tiendas que miro lo anuncia en español.</span>${cmRow ? `<div class="list">${cmRow}</div>` : ''}</div>`;
-  const rb = best ? rateOf(best.p, ref) : null;
-  const verdict = best ? `<div class="verdict ${RATE[rb][1]}"><b>${RATE[rb][0]}</b><span>${eur(best.p)} en ${esc(best.s)}${ref ? ` · lo normal hoy: ${eur(ref)}` : ''}</span></div>`
+  const rb2 = best ? rateOf(best.tot, ref) : null;
+  const verdict = best ? `<div class="verdict ${RATE[rb2][1]}"><b>${RATE[rb2][0]}</b><span>${eur(best.tot)} en casa con ${esc(best.s)} (${envTxt(best)})${ref ? ` · lo normal hoy: ${eur(ref)}` : ''}</span></div>`
     : '<div class="verdict none"><b>Agotado en todas</b><span>Ninguna tienda lo tiene en stock ahora mismo</span></div>';
   return `<div class="card col" style="gap:10px"><div class="between"><b>Dónde comprarlo en España</b><span class="muted" style="font-size:12px">${esc((SHOPS._d || '').split('-').reverse().join('/'))}</span></div>
     ${verdict}
-    <div class="list">${offers.map(o => `<a class="shoprow ${o.a ? '' : 'out'}" target="_blank" rel="noopener" href="${esc(toSafari(o.u))}"><div class="col" style="flex:1;min-width:0"><b>${esc(o.s)}</b><span class="muted ell">${o.a ? '' : 'Agotado · '}${esc(o.t)}</span></div>
-      <div class="col" style="align-items:flex-end;gap:3px"><b>${eur(o.p)}</b>${o.a ? rateChip(rateOf(o.p, ref)) : ''}</div></a>`).join('')}${cmRow}</div>
-    <span class="muted" style="font-size:12px">Buen precio: un 8 % o más por debajo de lo normal. Sobreprecio: un 12 % o más por encima. Lo normal es la mediana entre la tendencia de Cardmarket y lo que piden hoy las tiendas con stock. Se actualiza cada día.</span></div>`;
+    <div class="list">${offers.map(o => `<a class="shoprow ${o.a ? '' : 'out'}" target="_blank" rel="noopener" href="${esc(toSafari(o.u))}"><div class="col" style="flex:1;min-width:0"><b>${esc(o.s)}</b><span class="muted ell">${o.a ? envTxt(o) : 'Agotado'} · ${esc(o.t)}</span></div>
+      <div class="col" style="align-items:flex-end;gap:3px"><b>${eur(o.tot)}</b>${o.a ? rateChip(rateOf(o.tot, ref)) : ''}</div></a>`).join('')}${cmRow}</div>
+    <span class="muted" style="font-size:12px">Buen precio: un 8 % o más por debajo de lo normal. Sobreprecio: un 12 % o más por encima. Precios con envío a península; ≈ es un envío aproximado. Lo normal es la mediana entre Cardmarket y lo que cuesta hoy en las tiendas con stock. Se actualiza cada día. <a href="#/envios">Corregir gastos de envío</a></span></div>`;
+}
+function viewEnvios() {
+  const shops = Object.keys((SHOPS || {})._tiendas || {}).length ? Object.keys(SHOPS._tiendas) : Object.keys(ENVIO_DEF);
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="javascript:history.back()" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Gastos de envío</h1></div>
+    <span class="muted">A península (Madrid). Si una tienda no lo publica, pongo ${eur(4.95)} aproximado (≈). Cámbialo con lo que veas al pagar y se usará en todas las comparaciones.</span>
+    <div class="card list">${shops.sort((a, b) => a.localeCompare(b, 'es')).map(sh => { const e = envioOf(sh); return `<div class="item" style="gap:8px"><b style="flex:1">${esc(sh)}${e.e ? ' <span class="muted">≈</span>' : ''}</b>
+      <label class="f" style="width:84px">Envío €<input type="text" inputmode="decimal" data-ec="${esc(sh)}" value="${String(e.c).replace('.', ',')}"></label>
+      <label class="f" style="width:100px">Gratis desde<input type="text" inputmode="decimal" data-ef="${esc(sh)}" value="${e.f != null ? String(e.f).replace('.', ',') : ''}" placeholder="nunca"></label></div>`; }).join('')}</div>
+    <button class="btn" id="envok">Guardar</button></div>`;
+  if (!SHOPS) loadShops().then(() => location.hash === '#/envios' && viewEnvios());
+  document.getElementById('envok').onclick = () => {
+    COL.envio ||= {};
+    $view.querySelectorAll('[data-ec]').forEach(i => { const sh = i.dataset.ec, f = $view.querySelector(`[data-ef="${CSS.escape(sh)}"]`), c = parseNum(i.value), fv = parseNum(f.value), d = envioOf(sh);
+      if (c != null && (c !== d.c || (fv ?? null) !== (d.f ?? null))) COL.envio[sh] = { c, f: fv ?? null }; });
+    saveCol(); toast('Gastos de envío guardados'); history.back(); };
 }
 function viewOffers() {
   if (!SHOPS) { $view.innerHTML = '<div class="stack"><h1>Ofertas de sellado</h1><p class="muted">Cargando precios de tiendas…</p></div>'; loadShops().then(() => location.hash === '#/ofertas' && viewOffers()); return; }
   const ids = Object.keys(SHOPS).filter(k => !k.startsWith('_')).map(Number), info = sealedPrices(ids);
   const rows = ids.map(id => { const x = info[id]; if (!x) return null; const si = shopInfo(x); if (!si.best || !si.ref) return null;
-    return Object.assign({ id, x, r: rateOf(si.best.p, si.ref), off: 1 - si.best.p / si.ref }, si); }).filter(Boolean);
+    return Object.assign({ id, x, r: rateOf(si.best.tot, si.ref), off: 1 - si.best.tot / si.ref }, si); }).filter(Boolean);
   const good = rows.filter(r => r.r === 'good').sort((a, b) => b.off - a.off);
   $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Ofertas de sellado</h1></div>
-    <span class="muted">Producto en español que hoy está por debajo de lo normal en alguna tienda española con stock. Vigilo ${rows.length} productos en ${Object.keys(SHOPS._tiendas || {}).length} tiendas.</span>
+    <span class="muted">Producto en español que hoy está por debajo de lo normal en alguna tienda española con stock, contando el envío a casa. Vigilo ${rows.length} productos en ${Object.keys(SHOPS._tiendas || {}).length} tiendas.</span>
     ${good.length ? `<div class="list">${good.map(r => `<a class="item" href="#/sealeditem/${r.id}"><div class="sthumb">${sealedPhotoTag(r.x, r.x.ib)}</div>
       <div class="col" style="flex:1;min-width:0;gap:3px"><b class="ell">${esc(sealedEsName(r.x, r.x.set_name))}</b><span class="muted ell">${esc(r.best.s)}${r.offers.length < 2 ? ' · solo 1 tienda' : ''} · lo normal ${eur(r.ref)}</span><span>${rateChip('good', ` · −${Math.round(r.off * 100)} %`)}</span></div>
-      <b>${eur(r.best.p)}</b></a>`).join('')}</div>` : '<div class="card"><span class="muted">Hoy no hay nada por debajo de lo normal. Mañana se vuelve a mirar.</span></div>'}</div>`;
+      <div class="col" style="align-items:flex-end;gap:2px"><b>${eur(r.best.tot)}</b><span class="muted" style="font-size:11px">${r.best.env ? 'con envío' : 'envío gratis'}</span></div></a>`).join('')}</div>` : '<div class="card"><span class="muted">Hoy no hay nada por debajo de lo normal. Mañana se vuelve a mirar.</span></div>'}</div>`;
 }
 
 /* ---------- lista de venta ---------- */
@@ -2118,7 +2144,7 @@ async function syncNow(quiet) {
 }
 function mergeCols(a, b) {
   const out = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, hide: {}, setHide: {} }, a);
-  for (const k of ['cards', 'sealed', 'alerts', 'illustrators', 'sell', 'hide', 'extra', 'binders', 'real', 'cmurl', 'setMode']) out[k] = Object.assign({}, a[k] || {}, b[k] || {});
+  for (const k of ['cards', 'sealed', 'alerts', 'illustrators', 'sell', 'hide', 'extra', 'binders', 'real', 'cmurl', 'setMode', 'envio']) out[k] = Object.assign({}, a[k] || {}, b[k] || {});
   out.real = {}; for (const src of [a.real || {}, b.real || {}]) for (const [k, v] of Object.entries(src)) if (!out.real[k] || (v.d || '') >= (out.real[k].d || '')) out.real[k] = v;
   out.master = Object.assign({}, a.master || {}); for (const [id, m] of Object.entries(b.master || {})) out.master[id] = Object.assign({}, out.master[id] || {}, m);
   out.setHide = Object.assign({}, a.setHide || {}); for (const [id, l] of Object.entries(b.setHide || {})) out.setHide[id] = [...new Set([...(out.setHide[id] || []), ...l])];
@@ -2222,7 +2248,7 @@ function route() {
   if (!DB) return;
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   const [, a, b] = h.split('/');
-  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', scan: 'search', dex: 'sets', stats: 'more', calendario: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more', ofertas: 'more' }[a || ''] || 'home';
+  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'wish', wish: 'wish', settings: 'more', more: 'more', buy: 'more', scan: 'search', dex: 'sets', stats: 'more', calendario: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more', ofertas: 'more', envios: 'more' }[a || ''] || 'home';
   $tabs.querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
   window.scrollTo(0, 0);
   $view.classList.remove('vin'); void $view.offsetWidth; $view.classList.add('vin');   // entrada suave de cada pantalla
@@ -2242,6 +2268,7 @@ function route() {
     else if (a === 'expenses') viewExpenses();
     else if (a === 'sealed') viewSealed();
     else if (a === 'ofertas') viewOffers();
+    else if (a === 'envios') viewEnvios();
     else if (a === 'sealeditem') viewSealedItem(b);
     else if (a === 'sell') viewSell();
     else if (a === 'buy') viewBuy();
