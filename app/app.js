@@ -57,19 +57,21 @@ function cmProductLink(cm, region, rev) {
   // Dirección directa de la carta, montada como la forma Cardmarket: /Singles/<Set>/<Nombre>-V<n>-<CÓDIGO><número>
   const slug = cmSlug(cm);
   if (slug) return toSafari(`https://www.cardmarket.com/es/Pokemon/Products/Singles/${slug}?${cmFilter(region)}${rev ? '&isReverseHolo=Y' : ''}`);
-  const nm = ((q('SELECT name FROM cm_products WHERE cm_product_id = ?', [cm])[0] || {}).name || '').replace(/\s*\[.*?\]\s*/g, ' ').trim();
-  if (nm) return toSafari('https://www.cardmarket.com/es/Pokemon/Products/Search?searchString=' + encodeURIComponent(nm));
-  return `https://www.cardmarket.com/es/Pokemon/Products?idProduct=${cm}&${cmFilter(region)}${rev ? '&isReverseHolo=Y' : ''}`;
+  // Sin dirección directa: búsqueda por nombre dentro de su expansión (las fichas …?idProduct= piden iniciar sesión)
+  let r = q('SELECT name, cm_expansion_id exp FROM cm_products WHERE cm_product_id = ?', [cm])[0];
+  if (!r && HAS_EXTRA) r = q('SELECT name, cm_expansion_id exp FROM cm_extra WHERE cm_product_id = ?', [cm])[0];
+  const nm = ((r || {}).name || '').replace(/\s*\[.*?\]\s*/g, ' ').trim();
+  return toSafari('https://www.cardmarket.com/es/Pokemon/Products/Search?searchString=' + encodeURIComponent(nm || '') + (r && r.exp ? '&idExpansion=' + r.exp : '') + '&' + cmFilter(region));
 }
 function cmSlugify(t) {
   return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/['’`.]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 function cmSlug(cm) {
   try {
-    const r = q(`SELECT p.name, p.cm_expansion_id AS exp, c.local_id, s.name_en, s.abbr FROM cm_products p
+    const r = q(`SELECT p.name, p.cm_expansion_id AS exp, c.local_id, s.name_en, s.abbr, s.region FROM cm_products p
       JOIN card_variants v ON v.cm_product_id = p.cm_product_id JOIN cards c ON c.card_id = v.card_id JOIN sets s ON s.set_id = c.set_id
       WHERE p.cm_product_id = ? AND s.cm_expansion_id = p.cm_expansion_id LIMIT 1`, [cm])[0];
-    if (!r || !r.abbr || !r.name_en || !r.local_id) return null;
+    if (!r || !r.abbr || !r.name_en || !r.local_id || r.region === 'asia') return null;   // japonesas: los nombres de set no cuadran, mejor búsqueda
     const vers = q('SELECT cm_product_id FROM cm_products WHERE cm_expansion_id = ? AND name = ? ORDER BY cm_product_id', [r.exp, r.name]).map(x => x.cm_product_id);
     const base = cmSlugify(r.name.replace(/\s*\[.*$/, ''));
     const v = vers.length > 1 ? `-V${vers.indexOf(cm) + 1}` : '';
@@ -79,7 +81,7 @@ function cmSlug(cm) {
 function cmLink(v, c) {
   const region = (c && c.region) || (c && c.card_id && (q('SELECT s.region FROM cards c JOIN sets s USING(set_id) WHERE card_id=?', [c.card_id])[0] || {}).region) || 'int';
   if (v && v.cm_product_id) return cmProductLink(v.cm_product_id, region, isRevHolo(v));
-  return 'https://www.cardmarket.com/es/Pokemon/Products/Singles?searchString=' + encodeURIComponent((c && (c.name_en || c.name)) || '');
+  return toSafari('https://www.cardmarket.com/es/Pokemon/Products/Singles?searchString=' + encodeURIComponent((c && (c.name_en || c.name)) || ''));
 }
 function cardImg(c, size, cls, alt) { return CUSTOM_IMG[c.card_id] ? `<img ${cls ? `class="${cls}"` : ''} alt="${esc(alt || '')}" src="${CUSTOM_IMG[c.card_id]}">` : imgTag(c.image_base, size, cls, alt || '', '', (window.IMG_FB || {})[c.card_id] || ''); }
 async function loadCustomImgs() {
@@ -960,7 +962,7 @@ function viewOrdenCard(key, o) {
   const name = (q(`SELECT illustrator FROM cards WHERE illustrator = ? COLLATE NOCASE LIMIT 1`, [key])[0] || {}).illustrator || key;
   const { E, vmap } = ordenData(ord), e = E.find(x => String(x.o) === String(o)); if (!e) { $view.innerHTML = '<p>Carta no encontrada.</p>'; return; }
   const p = ordenPrice(name, e, vmap), ik = ordenImgKey(name, e);
-  const cmUrl = e.cm ? cmProductLink(e.cm, 'asia') : e.id ? cmLink(null, { card_id: e.id, name: e.n }) : 'https://www.cardmarket.com/es/Pokemon/Products/Singles?searchString=' + encodeURIComponent(e.n);
+  const cmUrl = e.cm ? cmProductLink(e.cm, 'asia') : e.id ? cmLink(null, { card_id: e.id, name: e.n }) : toSafari('https://www.cardmarket.com/es/Pokemon/Products/Singles?searchString=' + encodeURIComponent(e.n));
   const dex = (q(`SELECT dex_id FROM cards WHERE dex_id IS NOT NULL AND (name_en = ? OR name_en = ?) LIMIT 1`, [e.n, e.n.replace(/^(Dark|Light|Janine's) /, '')])[0] || {}).dex_id;
   const nav = cardNav(location.hash, null, null);
   const paint = () => { const has = ordenOwned(name, e), p = ordenPrice(name, e, vmap);
@@ -1006,7 +1008,7 @@ function extraSection(name) {
         return `<div class="tile ${o ? 'has' : 'miss'}" data-x="${r.cm_product_id}">
           <div class="img"><span class="fbn" ${r.image_base ? 'style="display:none"' : ''}>${esc(r.name)}</span>${imgTag(r.image_base, 'low', '', r.name)}
             <span class="vtag">CM</span><button class="own" aria-label="${o ? 'Quitar' : 'Añadir'}: ${esc(r.name)}">${o ? (o.qty > 1 ? '×' + o.qty : '✓') : '＋'}</button></div>
-          <span class="num">${r.date_added ? r.date_added.slice(0, 4) : 's/f'} · <a target="_blank" rel="noopener" href="https://www.cardmarket.com/es/Pokemon/Products/Singles?${r.cm_expansion_id ? 'idExpansion=' + r.cm_expansion_id + '&' : ''}searchString=${encodeURIComponent(r.name)}">Cardmarket ↗</a></span>
+          <span class="num">${r.date_added ? r.date_added.slice(0, 4) : 's/f'} · <a target="_blank" rel="noopener" href="${esc(toSafari('https://www.cardmarket.com/es/Pokemon/Products/Singles?' + (r.cm_expansion_id ? 'idExpansion=' + r.cm_expansion_id + '&' : '') + 'searchString=' + encodeURIComponent(r.name)))}">Cardmarket ↗</a></span>
           <span class="nm">${esc(r.name)}</span><span class="pr">${eur(p)}</span></div>`; }).join('')}</div>`;
     box.querySelectorAll('[data-x]').forEach(t => t.onclick = ev => {
       if (ev.target.closest('a')) return;
