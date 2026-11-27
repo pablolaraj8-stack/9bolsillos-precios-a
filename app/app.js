@@ -123,7 +123,129 @@ function loadCol() {
   return { cards: {}, sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, extra: {} };
 }
 let COL = loadCol();
-function saveCol() { COL.updatedAt = Date.now(); localStorage.setItem(STORE_KEY, JSON.stringify(COL)); if (typeof schedulePush === 'function') schedulePush(); }
+/* ---------- cambios carta a carta: lo que cambias en un dispositivo no pisa lo de otro ----------
+   Cada cosa de la colección (una carta, un sellado, una compra…) guarda cuándo cambió (_mt) y, si la borras,
+   cuándo se borró (_del). Al sincronizar se juntan las dos copias cosa a cosa: gana el cambio más reciente. */
+const META_KEYS = new Set(['updatedAt', '_mt', '_del']), OBJ_LISTS = new Set(['purchases', 'openings', 'goals']);
+function itemsOf(col) {
+  const m = new Map();
+  for (const [k, v] of Object.entries(col || {})) {
+    if (META_KEYS.has(k)) continue;
+    if (Array.isArray(v) && !OBJ_LISTS.has(k) && v.every(x => !x || typeof x !== 'object')) m.set('@' + k, v);   // lista simple (p. ej. avisos de lanzamientos)
+    else if (Array.isArray(v)) v.forEach(x => { if (x && typeof x === 'object') { if (x.id == null) x.id = Date.now() + Math.random(); m.set(k + '#' + x.id, x); } });
+    else if (v && typeof v === 'object') for (const [i, x] of Object.entries(v)) m.set(k + '|' + i, x);
+    else m.set('@' + k, v);
+  }
+  return m;
+}
+function splitKey(key) {
+  if (key[0] === '@') return ['s', key.slice(1), null];
+  const a = key.indexOf('#'), b = key.indexOf('|');
+  if (a > 0 && (b < 0 || a < b)) return ['a', key.slice(0, a), key.slice(a + 1)];
+  return ['m', key.slice(0, b), key.slice(b + 1)];
+}
+function setItem(col, key, val) {
+  const [t, k, i] = splitKey(key);
+  if (t === 's') col[k] = val;
+  else if (t === 'a') { col[k] ||= []; const j = col[k].findIndex(x => x && String(x.id) === i); if (j >= 0) col[k][j] = val; else col[k].push(val); }
+  else { col[k] ||= {}; col[k][i] = val; }
+}
+function delItem(col, key) {
+  const [t, k, i] = splitKey(key);
+  if (t === 's') delete col[k];
+  else if (t === 'a') { if (Array.isArray(col[k])) col[k] = col[k].filter(x => !(x && String(x.id) === i)); }
+  else if (col[k]) delete col[k][i];
+}
+let SNAP = null;
+const snapOf = col => { const s = new Map(); itemsOf(col).forEach((v, k) => s.set(k, JSON.stringify(v))); return s; };
+function trackChanges() {
+  if (!SNAP) SNAP = snapOf(COL);
+  const now = Date.now(), cur = itemsOf(COL), gone = [];
+  COL._mt ||= {}; COL._del ||= {};
+  for (const [k, v] of cur) {
+    if (!SNAP.has(k) && k.startsWith('cards|') && v && typeof v === 'object' && !v.added) v.added = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);   // desde cuándo la tienes
+    if (SNAP.get(k) !== JSON.stringify(v)) { COL._mt[k] = now; delete COL._del[k]; }
+  }
+  for (const [k, j] of SNAP) if (!cur.has(k)) { COL._del[k] = now; delete COL._mt[k]; try { gone.push([k, JSON.parse(j)]); } catch (e) {} }
+  const old = now - 90 * 864e5; for (const [k, t] of Object.entries(COL._del)) if (t < old) delete COL._del[k];
+  SNAP = snapOf(COL);
+  return gone;
+}
+// Junta dos copias de la colección cosa a cosa
+function mergeDocs(L, R) {
+  if (!R) return L; if (!L) return R;
+  const Li = itemsOf(L), Ri = itemsOf(R), Lm = L._mt || {}, Rm = R._mt || {}, Ld = L._del || {}, Rd = R._del || {};
+  const lt = L.updatedAt || 0, rt = R.updatedAt || 0;
+  const out = { _mt: {}, _del: {} };
+  for (const src of [R, L]) for (const [k, v] of Object.entries(src)) if (!META_KEYS.has(k) && v && typeof v === 'object' && !(k in out)) out[k] = Array.isArray(v) ? [] : {};
+  const keys = new Set([...Li.keys(), ...Ri.keys(), ...Object.keys(Ld), ...Object.keys(Rd)]);
+  for (const k of keys) {
+    const le = Li.has(k) ? (Lm[k] || 0) : -1, re = Ri.has(k) ? (Rm[k] || 0) : -1, ld = Ld[k] || -1, rd = Rd[k] || -1;
+    const del = Math.max(ld, rd), ex = Math.max(le, re);
+    if (del > ex) { out._del[k] = del; continue; }
+    if (le < 0 && re < 0) continue;
+    // a igualdad (copias antiguas sin fecha), gana la copia guardada más tarde
+    const useL = le > re || (le === re && lt >= rt);
+    setItem(out, k, structuredClone(useL ? Li.get(k) : Ri.get(k)));
+    if (ex > 0) out._mt[k] = ex;
+  }
+  out.updatedAt = Math.max(lt, rt);
+  return out;
+}
+const sameDoc = (a, b) => { const x = Object.assign({}, a, { updatedAt: 0 }), y = Object.assign({}, b, { updatedAt: 0 }); return JSON.stringify(itemsOfSorted(x)) === JSON.stringify(itemsOfSorted(y)); };
+const itemsOfSorted = c => [...itemsOf(structuredClone(c)).entries()].sort((a, b) => a[0] < b[0] ? -1 : 1);
+
+/* ---------- papelera: lo borrado se guarda 30 días en este dispositivo ---------- */
+const TRASH_KEY = '9b.trash', TRASH_KINDS = /^(cards|sealed|alerts|sealedAlerts|extra|sell)\||^(purchases|openings|goals)#/;
+const trashGet = () => { try { return JSON.parse(localStorage.getItem(TRASH_KEY) || '[]'); } catch (e) { return []; } };
+function trashAdd(gone) {
+  const keep = gone.filter(([k]) => TRASH_KINDS.test(k)); if (!keep.length) return [];
+  const t = trashGet().concat(keep.map(([k, v]) => ({ k, v, at: Date.now() }))).filter(x => x.at > Date.now() - 30 * 864e5).slice(-400);
+  try { localStorage.setItem(TRASH_KEY, JSON.stringify(t)); } catch (e) {}
+  return keep;
+}
+function trashRestore(keys) {
+  const t = trashGet(), ks = new Set(keys);
+  t.filter(x => ks.has(x.k + '@' + x.at)).forEach(x => setItem(COL, x.k, x.v));
+  try { localStorage.setItem(TRASH_KEY, JSON.stringify(t.filter(x => !ks.has(x.k + '@' + x.at)))); } catch (e) {}
+  saveCol(); if (DB) route();
+}
+function toastUndo(msg, fn) {
+  document.querySelectorAll('.toast.undo').forEach(x => x.remove());
+  const t = document.createElement('div'); t.className = 'toast undo'; t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite');
+  t.innerHTML = `<span>${esc(msg)}</span><button type="button">Deshacer</button>`;
+  t.querySelector('button').onclick = () => { t.remove(); fn(); };
+  document.body.appendChild(t); setTimeout(() => t.remove(), 6000);
+}
+const trashLabel = (k, v) => {
+  const [t, kind, id] = splitKey(k);
+  if (kind === 'cards') { const r = DB ? q(`SELECT ${NAME} n, COALESCE(s.name_es,s.name_en,s.name_ja) sn FROM cards c JOIN sets s USING(set_id) WHERE card_id=?`, [id])[0] : null; return ['Carta', r ? `${r.n} · ${r.sn}` : id]; }
+  if (kind === 'sealed' || kind === 'sealedAlerts') { const r = DB ? q('SELECT name FROM cm_products WHERE cm_product_id=?', [+id])[0] : null; return [kind === 'sealed' ? 'Sellado' : 'Objetivo de sellado', r ? r.name : id]; }
+  if (kind === 'purchases') return ['Gasto', `${v.desc || ''} · ${eur(v.price || 0)}`];
+  if (kind === 'openings') return ['Apertura', `${v.packs} sobres · ${v.d || ''}`];
+  if (kind === 'alerts') return ['Deseo', v.card || id];
+  if (kind === 'goals') return ['Meta', v.type === 'set' ? 'Acabar un set' : 'Komiya del año'];
+  if (kind === 'extra') return ['Carta japonesa', id];
+  if (kind === 'sell') return ['En venta', id];
+  return [kind, id];
+};
+function viewTrash() {
+  const t = trashGet().slice().reverse();
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/settings" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Papelera</h1></div>
+    <span class="muted">Lo que has borrado en este dispositivo en los últimos 30 días.</span>
+    ${t.length ? `<div class="list">${t.map(x => { const [ty, lb] = trashLabel(x.k, x.v); return `<div class="item"><div class="col" style="flex:1;min-width:0;gap:2px"><b class="ell">${esc(lb)}</b><span class="muted">${esc(ty)} · borrado el ${new Date(x.at).toLocaleDateString('es-ES')}</span></div><button class="pill" data-tr="${esc(x.k + '@' + x.at)}">Recuperar</button></div>`; }).join('')}</div>
+      <button class="btn sec" id="trempty">Vaciar la papelera</button>` : '<div class="card muted">La papelera está vacía.</div>'}</div>`;
+  $view.querySelectorAll('[data-tr]').forEach(b => b.onclick = () => { trashRestore([b.dataset.tr]); toast('Recuperado'); location.hash = '#/papelera'; viewTrash(); });
+  const e = document.getElementById('trempty'); if (e) e.onclick = () => { if (!confirm('¿Vaciar la papelera? No se podrá recuperar.')) return; localStorage.removeItem(TRASH_KEY); viewTrash(); };
+}
+
+function saveCol() {
+  const gone = trashAdd(trackChanges());
+  COL.updatedAt = Date.now(); localStorage.setItem(STORE_KEY, JSON.stringify(COL)); if (typeof schedulePush === 'function') schedulePush();
+  const big = gone.filter(([k]) => /^(cards|sealed)\||^(purchases|openings)#/.test(k));
+  if (big.length) { const at = trashGet().slice(-gone.length).map(x => x.k + '@' + x.at).filter(k => big.some(([g]) => k.startsWith(g + '@')));
+    setTimeout(() => toastUndo(big.length === 1 ? 'Borrado' : `${big.length} cosas borradas`, () => { trashRestore(at); toast('Recuperado'); }), 50); }
+}
 
 /* ---------- base de datos (IndexedDB) ---------- */
 function idb() {
@@ -582,7 +704,7 @@ function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
       <div class="between muted" style="flex-wrap:wrap"><span>Tu parte vale <b style="color:var(--tx)">${eur(val)}</b></span><span>Completarlo hoy: <b style="color:var(--tx)">${eur(missCost)}</b></span></div>
       ${key.startsWith('set:') && missCost > 0 ? finishLine(missCost, E.length - have) : ''}
       ${budgetButton()}
-      ${key.startsWith('set:') ? `<a class="pill" href="#/abrir/${encodeURIComponent(key.slice(4))}" style="align-self:flex-start;font-size:13px">Apuntar una apertura de este set</a>` : ''}`;
+      ${key.startsWith('set:') ? `<div class="row" style="gap:8px;flex-wrap:wrap"><a class="pill" href="#/abrir/${encodeURIComponent(key.slice(4))}" style="font-size:13px">Apuntar una apertura</a><a class="pill" href="#/faltas/${encodeURIComponent(key.slice(4))}" style="font-size:13px">Lista de faltas</a></div>` : ''}`;
     const bb = headEl.querySelector('[data-bulk]'); if (bb) bb.onclick = () => bulkAlerts(key, cards.filter(c => !COL.cards[c.card_id]).map(c => { const v = (vmap[c.card_id] || []).slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0]; return v && vPrice(v) ? { key: v.cm_product_id + '|' + (v.variant || ''), card: c.card_id, cm: v.cm_product_id, variant: v.variant, price: vPrice(v), name: c.name } : null; }).filter(Boolean), draw);
     const tile = (e, i, pocket) => {
       const c = e.c, has = owns(e), pr = priceOf(e);
@@ -1222,7 +1344,9 @@ function viewCard(cardId) {
             ${x.grader ? `<label class="f">Nota<input type="text" data-cp="${i}" data-k="grade" value="${esc(x.grade || '')}" placeholder="10" style="width:64px"></label>
               <label class="f">Valor (€)<input type="number" step="0.01" min="0" data-cp="${i}" data-k="gval" value="${x.gval ?? ''}" style="width:100px"></label>` : ''}
             <label class="f">Pagaste (€)<input type="number" step="0.01" min="0" data-cp="${i}" data-k="buy" value="${x.buy ?? ''}" style="width:100px"></label>
-            <button class="pill" data-cpdel="${i}" aria-label="Quitar copia ${i + 1}">✕</button></div>`).join('')}</div>
+            <button class="pill" data-cpph="${i}" aria-label="Añadir foto de la copia ${i + 1}">${ico('camera', 18)}</button><button class="pill" data-cpdel="${i}" aria-label="Quitar copia ${i + 1}">✕</button>
+            <div class="cpthumbs" data-cpt="${esc(x.pid || '')}"></div></div>`).join('')}</div>
+          ${e.added ? `<span class="muted">La tienes desde el ${esc(e.added.split('-').reverse().join('/'))}</span>` : ''}
           ${profit != null ? `<span class="${profit >= 0 ? 'up' : 'down'}" style="font-weight:700">${profit >= 0 ? '+' : '−'}${eur(Math.abs(profit))} (${pct(profit / pc * 100)}) sobre lo que pagaste</span>` : ''}
           <div class="row" style="flex-wrap:wrap"><button class="btn sec" id="cpadd">＋ Añadir copia</button><button class="btn" id="save">Guardar</button><button class="btn warn" id="del">Quitar de la colección</button></div>`
         : `<button class="btn" id="add">＋ La tengo</button>`}</div>
@@ -1232,6 +1356,7 @@ function viewCard(cardId) {
         <button class="btn" id="setal">${al ? 'Guardar' : '♡ La quiero'}</button>${al ? '<button class="btn sec" id="delal">Quitar</button>' : ''}</div></div>` : ''}
       <div class="col" style="gap:8px"><h2>Evolución del precio</h2>${chartSvg(h, 700, 140)}</div>
       <details class="more" id="cardmore" ${lsGet('cardmore', '0') === '1' ? 'open' : ''}><summary>Más información</summary><div class="stack">
+      <a class="pill" href="#/centrado/${encodeURIComponent(cardId)}" style="align-self:flex-start">¿Merece la pena gradearla? Medir el centrado</a>
       ${c.dex_id && (!c.kind || c.kind === 'Pokemon') && POKE[c.dex_id] !== null ? `<div class="card col pinfo" id="pinfo">${pokeInfoHTML(c.dex_id, c.name)}</div>` : ''}
       ${TRAINER_KIND[c.kind] ? `<div class="card col pinfo" id="tinfo" ${trainerInfoHTML(c) ? '' : 'style="display:none"'}>${trainerInfoHTML(c)}</div>` : ''}
       ${sel ? `<div class="card col" style="gap:12px"><b>Cardmarket${hol ? ' · reverse holo' : ''}</b><div class="kpis">
@@ -1263,6 +1388,12 @@ function viewCard(cardId) {
       const buys = cps.map(x => x.buy).filter(x => x != null); ent.buy = buys.length ? Math.round(buys.reduce((t, x) => t + x, 0) / buys.length * 100) / 100 : null; saveCol(); };
     $view.querySelectorAll('select[data-k="grader"]').forEach(el => el.onchange = () => { readCopies(); storeCopies(); draw(); });
     const cpadd = document.getElementById('cpadd'); if (cpadd) cpadd.onclick = () => { readCopies(); cps.push({ lang: defLang, cond: 'NM', buy: null }); storeCopies(); draw(); };
+    fillCopyThumbs($view);
+    $view.querySelectorAll('[data-cpph]').forEach(b => b.onclick = () => { const i = +b.dataset.cpph; readCopies(); cps[i].pid ||= Date.now().toString(36) + Math.random().toString(36).slice(2, 6); storeCopies();
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.setAttribute('capture', 'environment');
+      inp.onchange = async () => { const f = inp.files[0]; if (!f) return; const pid = cps[i].pid, n = (await idbGet('cp:' + pid + ':0')) ? 1 : 0;
+        await idbPut('cp:' + pid + ':' + n, await photoSmall(f)); toast(n ? 'Foto de detrás guardada' : 'Foto de delante guardada'); draw(); };
+      inp.click(); });
     $view.querySelectorAll('[data-cpdel]').forEach(b => b.onclick = () => { readCopies(); cps.splice(+b.dataset.cpdel, 1); if (!cps.length) { delete COL.cards[cardId]; saveCol(); viewCard(cardId); return; } storeCopies(); draw(); });
     const save = document.getElementById('save'); if (save) save.onclick = () => { readCopies(); storeCopies(); toast('Guardado'); draw(); };
     const del = document.getElementById('del'); if (del) del.onclick = () => { delete COL.cards[cardId]; saveCol(); viewCard(cardId); };
@@ -1994,6 +2125,153 @@ function viewGoals() {
   $view.querySelectorAll('[data-gdel]').forEach(b => b.onclick = () => { COL.goals.splice(+b.dataset.gdel, 1); saveCol(); viewGoals(); });
 }
 
+/* ---------- momento de vender ---------- */
+function sellNowRows() {
+  const ids = Object.keys(COL.cards); if (!ids.length) return [];
+  const vm = variantsOf(ids), info = {};
+  q(`SELECT c.card_id, ${NAME} name, c.local_id, c.image_base, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) set_name FROM cards c JOIN sets s USING(set_id) WHERE c.card_id IN (${ids.map(() => '?').join(',')})`, ids).forEach(r => info[r.card_id] = r);
+  const cms = []; const own = {};
+  ids.forEach(id => { const v = ownedVariant(id, vm[id]); if (v && v.cm_product_id) { own[id] = v; cms.push(v.cm_product_id); } });
+  const P = {}; if (cms.length) q(`SELECT cm_product_id, trend, avg30, trend_holo, avg30_holo FROM prices WHERE cm_product_id IN (${[...new Set(cms)].map(() => '?').join(',')})`, [...new Set(cms)]).forEach(r => P[r.cm_product_id] = r);
+  const out = [];
+  ids.forEach(id => { const v = own[id], i = info[id]; if (!v || !i) return; const p = vPrice(v); if (p == null || p < 2) return;
+    const r = P[v.cm_product_id] || {}, rev = isRevHolo(v), a30 = rev ? r.avg30_holo : r.avg30, tr = rev ? r.trend_holo : r.trend;
+    const cps = copiesOf(id), qn = cps.length, buys = cps.map(x => x.buy).filter(x => x != null), buy = buys.length ? buys.reduce((t, x) => t + x, 0) / buys.length : null;
+    const why = [];
+    if (qn > 1) why.push(['dup', `Repetida (×${qn})`]);
+    if (a30 && tr && tr >= a30 * 1.2) why.push(['up', `+${Math.round((tr / a30 - 1) * 100)} % sobre su media del mes`]);
+    if (buy && p >= buy * 2) why.push(['x', `Vale ${(p / buy).toLocaleString('es-ES', { maximumFractionDigits: 1 })} veces lo que pagaste`]);
+    if (why.length) out.push({ id, i, v, p, qn, why, score: p * why.length * (why.some(w => w[0] === 'dup') ? 1.5 : 1) }); });
+  return out.sort((a, b) => b.score - a.score);
+}
+function viewSellNow() {
+  const R = sellNowRows();
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Momento de vender</h1></div>
+    <span class="muted">Cartas tuyas de 2 € o más que conviene mirar: repetidas, las que han subido mucho este mes y las que valen el doble o más de lo que pagaste.</span>
+    ${R.length ? `<div class="list">${R.map(r => { const inSell = !!(COL.sell || {})[r.id]; return `<div class="item"><a href="#/card/${encodeURIComponent(r.id)}" style="display:flex;gap:12px;align-items:center;flex:1;min-width:0;color:var(--tx)"><div class="thumb">${img(r.i.image_base, '', '', r.id)}</div>
+      <div class="col" style="flex:1;min-width:0;gap:3px"><b class="ell">${esc(r.i.name)}</b><span class="muted ell">${esc(r.i.set_name)} · ${esc(r.i.local_id)}</span>${r.why.map(w => `<span class="rate ${w[0] === 'dup' ? 'mid' : 'good'}">${esc(w[1])}</span>`).join('')}</div><b>${eur(r.p)}</b></a>
+      <button class="pill ${inSell ? 'on' : ''}" data-sn="${esc(r.id)}" ${inSell ? 'disabled' : ''}>${inSell ? 'En venta' : 'Vender'}</button></div>`; }).join('')}</div>
+      <a class="btn sec" href="#/sell" style="text-align:center">Ir a tu lista de venta (exportar a Cardmarket)</a>`
+      : '<div class="card muted">Ahora mismo no hay nada que destaque para vender.</div>'}</div>`;
+  $view.querySelectorAll('[data-sn]').forEach(b => b.onclick = () => { const r = R.find(x => x.id === b.dataset.sn); if (!r) return;
+    const c0 = copiesOf(r.id)[0] || {}; COL.sell ||= {};
+    COL.sell[r.id] = { price: Math.round(r.p * 100) / 100, cond: c0.cond || 'NM', lang: c0.lang || 'ES', qty: r.qn > 1 ? r.qn - 1 : 1, cm: r.v.cm_product_id, variant: r.v.variant };
+    saveCol(); toast('Añadida a tu lista de venta'); viewSellNow(); });
+}
+
+/* ---------- fotos de tus copias (se guardan en este dispositivo) ---------- */
+async function photoSmall(file, max = 1400) {
+  const bmp = await createImageBitmap(file), k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
+  cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height); return cv.toDataURL('image/jpeg', 0.82);
+}
+async function fillCopyThumbs(root) {
+  for (const el of root.querySelectorAll('[data-cpt]')) { const pid = el.dataset.cpt; if (!pid) continue;
+    const ph = []; for (const n of [0, 1]) { const d = await idbGet('cp:' + pid + ':' + n); if (d) ph.push([n, d]); }
+    el.innerHTML = ph.map(([n, d]) => `<button class="cpth" data-cpv="${pid}:${n}" aria-label="Ver foto ${n ? 'de detrás' : 'de delante'}"><img alt="" src="${d}"></button>`).join(''); }
+  root.querySelectorAll('[data-cpv]').forEach(b => b.onclick = async () => { const [pid, n] = b.dataset.cpv.split(':'), d = await idbGet('cp:' + pid + ':' + n);
+    const ov = document.createElement('div'); ov.className = 'phview'; ov.innerHTML = `<img alt="Foto de tu copia" src="${d}"><div class="row" style="gap:10px"><button class="btn sec" id="phx">Cerrar</button><button class="btn warn" id="phdel">Borrar foto</button></div>`;
+    document.body.append(ov); ov.querySelector('#phx').onclick = () => ov.remove();
+    ov.querySelector('#phdel').onclick = async () => { await idbDel('cp:' + pid + ':' + n); ov.remove(); fillCopyThumbs(root); }; });
+}
+
+/* ---------- centrado: ¿merece la pena gradearla? ---------- */
+function viewCentering(cardId) {
+  const c = cardId ? q(`SELECT c.card_id, ${NAME} name FROM cards c WHERE card_id=?`, [cardId])[0] : null;
+  const v = c ? ownedVariant(cardId, variantsOf([cardId])[cardId]) || (variantsOf([cardId])[cardId] || [])[0] : null, p = v ? vPrice(v) : null;
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="javascript:history.back()" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Centrado</h1></div>
+    ${c ? `<b>${esc(c.name)}${p != null ? ' · ' + eur(p) : ''}</b>` : ''}
+    <span class="muted">Haz una foto de frente, con la carta recta y entera. Luego arrastra las líneas: las rojas al borde de la carta y las verdes al marco del dibujo.</span>
+    <label class="btn" style="display:flex;align-items:center;justify-content:center;gap:8px">${ico('camera', 18)} Hacer o elegir foto<input type="file" accept="image/*" capture="environment" id="cfile" hidden></label>
+    <div id="cwrap" class="cwrap" hidden><canvas id="ccv"></canvas></div>
+    <div id="cres"></div>
+    <div class="row" style="gap:8px;align-items:center"><span class="muted">Gradear te cuesta unos</span><input id="cfee" type="number" min="0" step="1" value="${lsGet('grade_fee', '30')}" style="width:80px"><span class="muted">€ (con envío)</span></div></div>`;
+  const cv = document.getElementById('ccv'), ctx = cv.getContext('2d'); let im = null, L = null;
+  const fee = () => parseFloat(document.getElementById('cfee').value) || 30;
+  const draw = () => { if (!im) return; ctx.drawImage(im, 0, 0, cv.width, cv.height);
+    const line = (x1, y1, x2, y2, col) => { ctx.strokeStyle = col; ctx.lineWidth = Math.max(2, cv.width / 250); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); };
+    [['ol', '#F04438'], ['or', '#F04438'], ['il', '#12B76A'], ['ir', '#12B76A']].forEach(([k, col]) => line(L[k], 0, L[k], cv.height, col));
+    [['ot', '#F04438'], ['ob', '#F04438'], ['it', '#12B76A'], ['ib', '#12B76A']].forEach(([k, col]) => line(0, L[k], cv.width, L[k], col));
+    const l = L.il - L.ol, r = L.or - L.ir, t = L.it - L.ot, b = L.ob - L.ib;
+    if (l <= 0 || r <= 0 || t <= 0 || b <= 0) { document.getElementById('cres').innerHTML = '<span class="muted">Coloca las verdes dentro de las rojas.</span>'; return; }
+    const lr = Math.round(l / (l + r) * 100), tb = Math.round(t / (t + b) * 100), worst = Math.max(lr, 100 - lr, tb, 100 - tb);
+    const g = worst <= 55 ? ['good', 'Centrado de 10', 'Por centrado podría sacar un 10 en PSA (máx. 55/45 delante).'] : worst <= 60 ? ['mid', 'Centrado de 9', 'Por centrado, lo más alto sería un 9 (máx. 60/40).'] : worst <= 65 ? ['mid', 'Centrado de 8', 'Por centrado, como mucho un 8 (máx. 65/35).'] : ['high', 'Descentrada', 'Por centrado se quedaría en 7 o menos.'];
+    const val = p || 0, worth = g[0] === 'good' && val >= fee() * 3;
+    document.getElementById('cres').innerHTML = `<div class="kpis"><div><span class="muted">Izquierda / derecha</span><b>${lr}/${100 - lr}</b></div><div><span class="muted">Arriba / abajo</span><b>${tb}/${100 - tb}</b></div></div>
+      <div class="verdict ${g[0]}"><b>${g[1]}</b><span>${g[2]}</span></div>
+      ${p != null ? `<div class="verdict ${worth ? 'good' : 'mid'}" style="margin-top:8px"><b>${worth ? 'Puede compensar gradearla' : 'Probablemente no compensa'}</b><span>${worth ? `Vale ${eur(val)}, más de 3 veces lo que cuesta gradear. Mira bien esquinas, bordes y superficie: el centrado es solo una parte.` : g[0] !== 'good' ? 'Sin centrado de 10, la nota baja y el precio también.' : `Vale ${eur(val)}: gradear (${eur(fee())}) se come gran parte de lo que podría subir.`}</span></div>` : ''}
+      <span class="muted" style="font-size:12px">Orientativo. Mide también la parte de atrás (PSA admite hasta 75/25 detrás para un 10).</span>`; };
+  document.getElementById('cfee').onchange = e => { lsSet('grade_fee', e.target.value); draw(); };
+  document.getElementById('cfile').onchange = async e => { const f = e.target.files[0]; if (!f) return; const bmp = await createImageBitmap(f), k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k); im = bmp;
+    const W = cv.width, H = cv.height; L = { ol: W * .05, or: W * .95, ot: H * .04, ob: H * .96, il: W * .1, ir: W * .9, it: H * .08, ib: H * .92 };
+    document.getElementById('cwrap').hidden = false; draw(); };
+  let drag = null;
+  const pos = ev => { const r = cv.getBoundingClientRect(); return [(ev.clientX - r.left) * cv.width / r.width, (ev.clientY - r.top) * cv.height / r.height]; };
+  cv.onpointerdown = ev => { if (!L) return; const [x, y] = pos(ev), tol = cv.width / 18;
+    const cand = [['ol', Math.abs(x - L.ol)], ['or', Math.abs(x - L.or)], ['il', Math.abs(x - L.il)], ['ir', Math.abs(x - L.ir)], ['ot', Math.abs(y - L.ot)], ['ob', Math.abs(y - L.ob)], ['it', Math.abs(y - L.it)], ['ib', Math.abs(y - L.ib)]].sort((a, b) => a[1] - b[1])[0];
+    if (cand[1] < tol) { drag = cand[0]; cv.setPointerCapture(ev.pointerId); ev.preventDefault(); } };
+  cv.onpointermove = ev => { if (!drag) return; const [x, y] = pos(ev); L[drag] = /[lr]$/.test(drag) ? x : y; draw(); };
+  cv.onpointerup = () => { drag = null; };
+}
+
+/* ---------- widget en la pantalla de inicio (Scriptable) ---------- */
+const WIDGET_JS = url => `// 9Bolsillos · widget para Scriptable (se actualiza solo cada día)
+const URL_DATOS = "${url}";
+const d = await (new Request(URL_DATOS)).loadJSON();
+const w = new ListWidget();
+w.backgroundColor = new Color("#0E1116"); w.setPadding(14, 14, 12, 14);
+w.url = "${location.origin + location.pathname}";
+const t = w.addText("9Bolsillos"); t.font = Font.semiboldSystemFont(12); t.textColor = new Color("#9AA3AE");
+w.addSpacer(4);
+const v = w.addText(d.valor_txt); v.font = Font.boldRoundedSystemFont(26); v.textColor = Color.white(); v.minimumScaleFactor = 0.6;
+const c = w.addText((d.cambio >= 0 ? "▲ +" : "▼ ") + d.cambio_txt + " hoy"); c.font = Font.semiboldSystemFont(12);
+c.textColor = new Color(d.cambio >= 0 ? "#3DDC97" : "#F2A65A");
+if (d.serie && d.serie.length > 1 && config.widgetFamily !== "small") {
+  w.addSpacer(6);
+  const W = 300, H = 50, dc = new DrawContext(); dc.size = new Size(W, H); dc.opaque = false; dc.respectScreenScale = true;
+  const mn = Math.min(...d.serie), mx = Math.max(...d.serie), p = new Path();
+  d.serie.forEach((y, i) => { const pt = new Point(i * W / (d.serie.length - 1), H - 4 - (mx > mn ? (y - mn) / (mx - mn) : .5) * (H - 8)); i ? p.addLine(pt) : p.move(pt); });
+  dc.addPath(p); dc.setStrokeColor(new Color("#3DDC97")); dc.setLineWidth(3); dc.strokePath();
+  w.addImage(dc.getImage()).imageSize = new Size(W, H);
+}
+w.addSpacer();
+const f = w.addText(d.fecha_txt); f.font = Font.systemFont(10); f.textColor = new Color("#6B7280");
+Script.setWidget(w); Script.complete();`;
+function viewWidget() {
+  if (!COL.widgetToken) { COL.widgetToken = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join(''); saveCol(); }
+  const url = location.origin + location.pathname.replace(/index\.html$/, '') + 'w/' + COL.widgetToken + '.json';
+  $view.innerHTML = `<div class="stack"><div class="row"><a href="#/settings" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Widget</h1></div>
+    <span class="muted">Un widget en la pantalla de inicio con el valor de tu colección, lo que ha cambiado hoy y la gráfica del último mes. Se actualiza solo cada mañana.</span>
+    <div class="card col" style="gap:10px"><b>Cómo ponerlo (una sola vez)</b>
+      <ol class="steps"><li>Instala <b>Scriptable</b> desde la App Store (es gratis).</li><li>Toca <b>Copiar el código</b> aquí abajo.</li><li>En Scriptable, toca <b>＋</b>, pega el código y ponle de nombre «9Bolsillos».</li>
+      <li>En la pantalla de inicio, mantén pulsado, toca <b>＋</b> → Scriptable → elige el tamaño → <b>Añadir</b>.</li><li>Mantén pulsado el widget → Editar widget → Script: <b>9Bolsillos</b>.</li></ol>
+      <button class="btn" id="wcopy">Copiar el código</button></div>
+    <span class="muted">Tus datos del widget están en una dirección secreta que solo conoce tu app: solo el valor total y la gráfica, nada de tus cartas. Los primeros datos aparecen tras la próxima actualización diaria.</span>
+    <button class="pill" id="wnew" style="align-self:flex-start">Cambiar la dirección secreta</button></div>`;
+  document.getElementById('wcopy').onclick = async () => { const code = WIDGET_JS(url); try { await navigator.clipboard.writeText(code); toast('Código copiado'); } catch (e) { prompt('Copia el código:', code); } };
+  document.getElementById('wnew').onclick = () => { if (!confirm('El widget que tengas puesto dejará de funcionar hasta que pegues el código nuevo. ¿Seguir?')) return; delete COL.widgetToken; saveCol(); viewWidget(); };
+}
+
+/* ---------- lista de faltas para imprimir o llevar a la feria ---------- */
+function viewMissing(setId) {
+  const s = q('SELECT set_id, COALESCE(name_es,name_en,name_ja,name_local) n, card_count FROM sets WHERE set_id=?', [setId])[0]; if (!s) { $view.innerHTML = '<p>Set no encontrado.</p>'; return; }
+  const master = isMasterSet(setId);
+  const cards = q(`SELECT c.card_id, c.set_id, ${NAME} name, c.local_id, c.rarity, (c.name_es IS NULL AND st.lang='es' AND st.release_date >= '2019') no_es FROM cards c JOIN sets st USING(set_id) WHERE c.set_id=? ORDER BY CAST(c.local_id AS INTEGER), c.local_id`, [setId]).filter(c => !hiddenCard(c));
+  const vm = variantsOf(cards.map(c => c.card_id)), rows = [];
+  cards.forEach(c => { const vs = vm[c.card_id] || [];
+    if (master) { const ks = ownedKeys(c.card_id, vs); uniqVariants(vs).filter(v => !(v && v.stamp) && !hiddenVariant(c, v)).forEach(v => { if (!ks.has(vkey(v))) rows.push({ c, v, p: vPrice(v) }); }); }
+    else if (!COL.cards[c.card_id]) { const v = vs.slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0]; rows.push({ c, v, p: v ? vPrice(v) : null }); } });
+  const tot = rows.reduce((t, r) => t + (r.p || 0), 0);
+  $view.innerHTML = `<div class="stack report"><div class="row noprint"><a href="javascript:history.back()" class="pill" style="display:flex;align-items:center" aria-label="Volver">←</a><h1 style="flex:1">Lista de faltas</h1><button class="btn" id="mprint">Imprimir o PDF</button></div>
+    <div class="rhead"><h1>${esc(s.n)}${master ? ' · máster set' : ''}</h1><span>Te faltan ${rows.length} · unos ${eur(tot)} · ${new Date().toLocaleDateString('es-ES')}</span></div>
+    <table class="rtab mtab"><thead><tr><th></th><th>Nº</th><th>Carta</th>${master ? '<th>Versión</th>' : ''}<th>Rareza</th><th>Precio</th></tr></thead><tbody>
+      ${rows.map(r => `<tr data-mk="${esc(r.c.card_id + (r.v ? '|' + vkey(r.v) : ''))}"><td><span class="box"></span></td><td>${esc(r.c.local_id)}${s.card_count ? '/' + s.card_count : ''}</td><td>${esc(r.c.name)}</td>${master ? `<td>${esc(r.v ? vLabel(r.v) : '')}</td>` : ''}<td>${esc(r.c.rarity || '')}</td><td>${r.p != null ? eur(r.p) : '—'}</td></tr>`).join('')}</tbody></table>
+    <span class="muted noprint" style="font-size:12px">En el móvil puedes tocar una fila para tacharla mientras miras en la feria (no cambia tu colección).</span></div>`;
+  document.getElementById('mprint').onclick = () => window.print();
+  $view.querySelectorAll('[data-mk]').forEach(tr => tr.onclick = () => tr.classList.toggle('done'));
+}
+
 /* ---------- lista de venta ---------- */
 function viewSell() {
   const ids = Object.keys(COL.sell), vm = variantsOf(ids);
@@ -2298,7 +2576,8 @@ function viewCalendar() {
     ${N ? `<div class="calnext"><span style="opacity:.8">Próximo lanzamiento en España</span><b style="font-size:22px">${esc(N.nombre)}</b>
       <span class="cd">${N.dias === 0 ? '¡Hoy!' : N.dias === 1 ? 'Mañana' : N.dias + ' días'}</span><span style="opacity:.8">${+N.fecha.slice(8)} de ${MESES[+N.fecha.slice(5, 7) - 1]} de ${N.fecha.slice(0, 4)}${N.nota ? ' · ' + esc(N.nota) : ''}</span></div>` : ''}
     <h2>Próximos</h2><div class="list">${next.map(row).join('') || '<p class="muted">No hay ningún lanzamiento anunciado todavía.</p>'}</div>
-    <span class="muted">La campana te manda un aviso al móvil la mañana en que sale (necesitas los avisos activados en Ajustes).</span>
+    <a class="btn sec" href="webcal://${location.host}${location.pathname.replace(/index\.html$/, '')}lanzamientos.ics" style="display:flex;align-items:center;justify-content:center;gap:8px">${ico('calendar', 18)} Añadir a mi calendario del iPhone</a>
+    <span class="muted">Te suscribe a un calendario con los lanzamientos en España (con aviso el día antes) que se actualiza solo cuando se anuncia uno nuevo. La campana te manda además un aviso al móvil la mañana en que sale.</span>
     <p class="muted">Los sets entran solos en la app cuando se añaden a la base de datos. Los anunciados que aún no están, los apunto a mano: pídemelo cuando anuncien uno nuevo.</p></div>`;
   $view.querySelectorAll('[data-cal]').forEach(b => b.onclick = () => { const id = b.dataset.cal; COL.cal = COL.cal || []; const i = COL.cal.indexOf(id);
     if (i >= 0) COL.cal.splice(i, 1); else COL.cal.push(id); saveCol(); toast(i >= 0 ? 'Aviso quitado' : 'Te avisaré el día que salga'); viewCalendar(); });
@@ -2390,8 +2669,11 @@ function tidyView(root) {
     if (el.closest('.item, .shoprow, .verdict, details.info, .list, .kpis, .herocard, .tile, summary, label, .rsheet, .toast, .center, .rtop, .card.muted') || el.classList.contains('card') || el.classList.contains('ell')) return;
     const t = (el.textContent || '').trim();
     if (t.length < 120) return;
+    const prev = el.previousElementSibling;
+    if (prev && prev.matches('details.info')) { prev.appendChild(el); return; }
+    const first = !root.querySelector('details.info');
     const d = document.createElement('details'); d.className = 'info';
-    d.innerHTML = '<summary>Cómo funciona</summary>'; el.replaceWith(d); d.appendChild(el);
+    d.innerHTML = `<summary>${first ? 'Cómo funciona' : 'Más detalles'}</summary>`; el.replaceWith(d); d.appendChild(el);
   });
   root.querySelectorAll('.up:not([data-arw]), .down:not([data-arw])').forEach(el => {
     el.dataset.arw = 1; const t = (el.textContent || '').trim();
@@ -2417,9 +2699,11 @@ function viewMore() {
     <div class="gsec"><span class="ghead">Compartir y vender</span><div class="group">
       ${grow('#/intercambio', 'cart', '#2F9BF0', 'Lista de intercambio', 'Tus repetidas y lo que buscas')}
       ${grow('#/regalos', 'present', '#E3B341', 'Lista de regalos', 'Ideas por precio para la familia')}
+      ${grow('#/vender', 'chart', '#2FB57A', 'Momento de vender', 'Repetidas y las que más han subido')}
       ${grow('#/sell', 'tag', '#D5527F', 'Lista de venta', pl(n('sell'), 'carta', 'cartas'))}</div></div>
     <div class="gsec"><span class="ghead">App</span><div class="group">
       ${grow('#/avisos', 'bell', '#F59E0B', 'Avisos', 'Qué te llega al móvil')}
+      ${grow('#/widget', 'stats', '#5B8DEF', 'Widget', 'Tu colección en la pantalla de inicio')}
       ${grow('#/settings', 'gear', '#6B7280', 'Ajustes', 'Cuenta, apariencia, base de datos y copias')}</div></div></div>`;
 }
 // Pestañas comunes de «Números y valor»
@@ -2543,6 +2827,7 @@ function viewSettings() {
   const days = HAS_HISTORY ? q('SELECT COUNT(DISTINCT day) n FROM history')[0].n : 0;
   $view.innerHTML = `<div class="stack"><div class="row"><a href="#/more" class="pill" style="display:flex;align-items:center">←</a><h1>Ajustes</h1></div>
     ${syncCard()}
+    <a class="card row" href="#/papelera" style="gap:12px;align-items:center;color:var(--tx)"><span class="gico" style="background:#6B7280">${ico('box', 18)}</span><div class="col" style="flex:1"><b>Papelera</b><span class="muted">Lo borrado en los últimos 30 días</span></div>${ico('chev', 16)}</a>
     <a class="card row" href="#/avisos" style="gap:12px;align-items:center;color:var(--tx)"><span class="gico" style="background:#F59E0B">${ico('bell', 18)}</span><div class="col" style="flex:1"><b>Avisos al móvil</b><span class="muted">Qué te llega y cuándo</span></div>${ico('chev', 16)}</a>
     <div class="card col" style="gap:4px"><b>Apariencia</b>
       <label class="f">Tema<select id="theme"><option value="dark">Oscuro</option><option value="light">Claro</option><option value="auto">Como el iPhone</option></select></label>
@@ -2614,26 +2899,12 @@ async function syncNow(quiet) {
     const { data, error } = await SB.from('collections').select('data, images, updated_at').eq('user_id', SB_USER.id).maybeSingle();
     if (error) throw error;
     const remote = data && data.data && data.data.cards ? data.data : null;
-    const lt = COL.updatedAt || 0, rt = remote ? (remote.updatedAt || 0) : -1;
-    const firstTime = localStorage.getItem('9b.synced') !== (SB_USER.id);
-    if (remote && firstTime && Object.keys(COL.cards).length) {
-      // Primera vez en este dispositivo con datos en los dos lados: se juntan, no se pisa nada
-      COL = mergeCols(remote, COL); COL.updatedAt = Date.now();
-      localStorage.setItem(STORE_KEY, JSON.stringify(COL));
-      for (const [k, v] of Object.entries(data.images || {})) if (!CUSTOM_IMG[k]) { CUSTOM_IMG[k] = v; await idbPut('img:' + k, v); }
-      await pushNow(true);
-      if (!quiet) toast('Colecciones unidas y sincronizadas');
-      if (DB) route();
-    } else if (remote && rt > lt) {
-      COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, extra: {} }, remote);
-      localStorage.setItem(STORE_KEY, JSON.stringify(COL));
-      for (const [k, v] of Object.entries(data.images || {})) { if (CUSTOM_IMG[k] !== v) { CUSTOM_IMG[k] = v; await idbPut('img:' + k, v); } }
-      for (const k of Object.keys(CUSTOM_IMG)) if (!(data.images || {})[k]) { delete CUSTOM_IMG[k]; await idbDel('img:' + k); }
-      if (!quiet) toast('Colección actualizada desde la nube');
-      if (DB) route();
-    } else if (!remote || lt > rt) {
-      await pushNow(true);
-      if (!quiet) toast('Colección subida a la nube');
+    for (const [k, v] of Object.entries((data && data.images) || {})) if (!CUSTOM_IMG[k]) { CUSTOM_IMG[k] = v; await idbPut('img:' + k, v); }
+    if (!remote) { await pushNow(true); if (!quiet) toast('Colección subida a la nube'); }
+    else {
+      const merged = mergeDocs(COL, remote), gotNew = !sameDoc(merged, COL), sendNew = !sameDoc(merged, remote);
+      if (gotNew) { COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, extra: {} }, merged); SNAP = snapOf(COL); localStorage.setItem(STORE_KEY, JSON.stringify(COL)); if (!quiet) toast('Colección actualizada desde la nube'); if (DB) route(); }
+      if (sendNew) { await pushNow(true, true); if (!quiet && !gotNew) toast('Colección subida a la nube'); }
     }
     SB_LAST = new Date(); localStorage.setItem('9b.synced', SB_USER.id);
   } catch (e) { console.warn('Sync:', e); toast('No se pudo sincronizar: ' + (e.message || e)); }
@@ -2648,8 +2919,13 @@ function mergeCols(a, b) {
   const ids = new Set((a.purchases || []).map(p => p.id)); out.purchases = (a.purchases || []).concat((b.purchases || []).filter(p => !ids.has(p.id)));
   return out;
 }
-async function pushNow(withImages) {
+async function pushNow(withImages, merged) {
   if (!SB || !SB_USER) return;
+  if (!merged) {   // antes de subir, se junta con lo que haya en la nube (otro dispositivo puede haber cambiado algo)
+    const { data } = await SB.from('collections').select('data').eq('user_id', SB_USER.id).maybeSingle();
+    const remote = data && data.data && data.data.cards ? data.data : null;
+    if (remote) { const m = mergeDocs(COL, remote); if (!sameDoc(m, COL)) { COL = Object.assign({ sealed: {}, alerts: {}, illustrators: {}, purchases: [], sell: {}, master: {}, extra: {} }, m); SNAP = snapOf(COL); localStorage.setItem(STORE_KEY, JSON.stringify(COL)); if (DB) route(); } }
+  }
   const row = { user_id: SB_USER.id, data: COL, updated_at: new Date().toISOString() };
   if (withImages || imgsDirty) row.images = CUSTOM_IMG;
   const { error } = await SB.from('collections').upsert(row);
@@ -2757,7 +3033,7 @@ function route() {
   ordenAuto();
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   const [, a, b] = h.split('/');
-  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'more', wish: 'more', settings: 'more', more: 'more', buy: 'buy', scan: 'search', dex: 'sets', stats: 'more', calendario: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more', ofertas: 'more', envios: 'more', abrir: 'more', aperturas: 'more', intercambio: 'more', i: 'more', feria: 'more', regalos: 'more', g: 'more', informe: 'more', rentabilidad: 'more', metas: 'more', avisos: 'more' }[a || ''] || 'home';
+  const tab = { '': 'home', sets: 'sets', set: 'sets', card: 'sets', ocard: 'sets', illustrators: 'more', illustrator: 'sets', search: 'search', alerts: 'more', wish: 'more', settings: 'more', more: 'more', buy: 'buy', scan: 'search', dex: 'sets', stats: 'more', calendario: 'more', show: 'more', expenses: 'more', sealed: 'more', sealeditem: 'sets', sell: 'more', ofertas: 'more', envios: 'more', abrir: 'more', aperturas: 'more', intercambio: 'more', i: 'more', feria: 'more', regalos: 'more', g: 'more', informe: 'more', rentabilidad: 'more', metas: 'more', avisos: 'more', papelera: 'more', vender: 'more', centrado: 'sets', widget: 'more', faltas: 'sets' }[a || ''] || 'home';
   $tabs.querySelectorAll('a').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
   window.scrollTo(0, 0);
   $view.classList.remove('vin'); void $view.offsetWidth; $view.classList.add('vin');   // entrada suave de cada pantalla
@@ -2788,6 +3064,11 @@ function route() {
     else if (a === 'rentabilidad') viewProfit();
     else if (a === 'metas') viewGoals();
     else if (a === 'avisos') viewAvisos();
+    else if (a === 'papelera') viewTrash();
+    else if (a === 'vender') viewSellNow();
+    else if (a === 'centrado') viewCentering(b);
+    else if (a === 'widget') viewWidget();
+    else if (a === 'faltas') viewMissing(b);
     else if (a === 'envios') viewEnvios();
     else if (a === 'sealeditem') viewSealedItem(b);
     else if (a === 'sell') viewSell();

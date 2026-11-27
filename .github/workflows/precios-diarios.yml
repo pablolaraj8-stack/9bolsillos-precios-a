@@ -6,7 +6,7 @@ on:
   workflow_dispatch:        # botón "Run workflow" para lanzarlo a mano
   push:
     branches: [main]
-    paths: ["app/**", "build_db.py", "update_prices.py", "export_web.py", "wikidex.py", "sellado.py", "fotos.py", "tiendas.py", ".github/workflows/**"]
+    paths: ["app/**", "build_db.py", "update_prices.py", "export_web.py", "wikidex.py", "sellado.py", "fotos.py", "tiendas.py", "widget.py", "ics.py", ".github/workflows/**"]
 
 permissions:
   contents: write
@@ -98,8 +98,16 @@ jobs:
           cp fotos.json _site/ 2>/dev/null || true
           cp tiendas.json _site/ 2>/dev/null || true
           cp tiendas_hist.json _site/ 2>/dev/null || true
+          python3 ics.py _site/lanzamientos.ics || true
           ls -la _site | head -40
           cat _site/version.json
+
+      - name: Datos del widget (valor de cada colección con widget activado)
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python3 widget.py --db 9bolsillos.db --out _site
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v5
