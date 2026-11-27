@@ -543,10 +543,14 @@ function masterProgress(setId) {
   return { have, total };
 }
 const setsPills = () => `<div class="pills onerow">${[['es', 'Todos los sets'], ['mine', 'Mis sets'], ['sealed', 'Mi sellado']].map(([k, l]) => `<button class="pill ${setsFilter === k ? 'on' : ''}" data-f="${k}">${l}</button>`).join('')}</div>`;
+// Siglas oficiales del set (p. ej. CRI). Las bases antiguas no tienen la columna.
+let _abbrOk;
+const ABBR = () => { if (_abbrOk === undefined) { try { q('SELECT abbr FROM sets LIMIT 1'); _abbrOk = true; } catch (e) { _abbrOk = false; } } return _abbrOk ? 's.abbr' : 'NULL'; };
+const abbrTag = a => a ? `<span class="abbr" title="Siglas del set">${esc(a)}</span>` : '';
 function viewSets() {
   if (setsFilter !== 'mine' && setsFilter !== 'sealed') setsFilter = 'es';
   if (setsFilter === 'sealed') { viewSealed(true); return; }
-  const rows = q(`SELECT s.set_id, s.lang, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) name, s.serie, s.release_date,
+  const rows = q(`SELECT s.set_id, s.lang, COALESCE(s.name_es,s.name_en,s.name_ja,s.name_local) name, s.serie, s.release_date, ${ABBR()} abbr,
     (SELECT COUNT(*) FROM cards c WHERE c.set_id = s.set_id) n, (SELECT image_base FROM cards c WHERE c.set_id = s.set_id LIMIT 1) ib
     FROM sets s WHERE n > 0 ORDER BY s.release_date DESC, s.set_id`);
   const ownCount = {}; Object.values(COL.cards).forEach(e => ownCount[e.set] = (ownCount[e.set] || 0) + 1);
@@ -554,12 +558,12 @@ function viewSets() {
     const ql = setsQuery.toLowerCase();
     // Colecciones por set: solo en español (SETS_LANG). Los ilustradores van en japonés (ILL_LANG).
     const okLang = r => r.lang === SETS_LANG && (setsFilter !== 'mine' || ownCount[r.set_id]);
-    const list = rows.filter(r => okLang(r) && (!ql || (r.name || '').toLowerCase().includes(ql) || (r.serie || '').toLowerCase().includes(ql)));
+    const list = rows.filter(r => okLang(r) && (!ql || (r.name || '').toLowerCase().includes(ql) || (r.abbr || '').toLowerCase() === ql || (r.serie || '').toLowerCase().includes(ql)));
     document.getElementById('setlist').innerHTML = list.map(r => {
       const m = isMasterSet(r.set_id), mp = m ? masterProgress(r.set_id) : null;
       const o = m ? mp.have : ownCount[r.set_id] || 0, tot = m ? mp.total : r.n, p = tot ? Math.round(o / tot * 100) : 0;
       const tag = m ? `<span class="modetag master">${ico('crown', 11)} Máster</span>` : (ownCount[r.set_id] ? '<span class="modetag">Básico</span>' : '');
-      return `<a class="setrow ${m ? 'master' : ''}" href="#/set/${encodeURIComponent(r.set_id)}"><div class="logobox">${setLogo(r.ib, 'setlogo', r.name, r.set_id)}${m ? `<span class="crown">${ico('crown', 12)}</span>` : ''}</div><div class="col" style="flex:1;min-width:0;gap:3px"><div class="row" style="gap:6px;min-width:0"><b class="ell">${esc(r.name)}</b>${tag}</div><span class="muted ell">${esc(r.serie)} · ${r.release_date ? esc(r.release_date.slice(0, 4)) : ''}${setsFilter === 'otros' || setsFilter === 'mine' ? ' · ' + esc(LANGS[r.lang] || r.lang) : ''}</span>
+      return `<a class="setrow ${m ? 'master' : ''}" href="#/set/${encodeURIComponent(r.set_id)}"><div class="logobox">${setLogo(r.ib, 'setlogo', r.name, r.set_id)}${m ? `<span class="crown">${ico('crown', 12)}</span>` : ''}</div><div class="col" style="flex:1;min-width:0;gap:3px"><div class="row" style="gap:6px;min-width:0"><b class="ell">${esc(r.name)}</b>${tag}${abbrTag(r.abbr)}</div><span class="muted ell">${esc(r.serie)} · ${r.release_date ? esc(r.release_date.slice(0, 4)) : ''}${setsFilter === 'otros' || setsFilter === 'mine' ? ' · ' + esc(LANGS[r.lang] || r.lang) : ''}</span>
         <div class="between" style="gap:8px;margin-top:3px"><div class="bar thin" style="flex:1"><div style="width:${p}%"></div></div><span class="cnt ${o ? 'has' : ''}">${o ? `${o}/${tot}` : tot}</span></div></div></a>`;
     }).join('') || '<p class="muted">No hay sets que coincidan.</p>';
   };
@@ -704,7 +708,7 @@ function cardBrowser(key, cards0, vmap, el, headEl, opts = {}) {
       <div class="between muted" style="flex-wrap:wrap"><span>Tu parte vale <b style="color:var(--tx)">${eur(val)}</b></span><span>Completarlo hoy: <b style="color:var(--tx)">${eur(missCost)}</b></span></div>
       ${key.startsWith('set:') && missCost > 0 ? finishLine(missCost, E.length - have) : ''}
       ${budgetButton()}
-      ${key.startsWith('set:') ? `<div class="row" style="gap:8px;flex-wrap:wrap"><a class="pill" href="#/abrir/${encodeURIComponent(key.slice(4))}" style="font-size:13px">Apuntar una apertura</a><a class="pill" href="#/faltas/${encodeURIComponent(key.slice(4))}" style="font-size:13px">Lista de faltas</a></div>` : ''}`;
+      ${key.startsWith('set:') ? `<div class="row" style="gap:8px;flex-wrap:wrap"><a class="pill" href="#/abrir/${encodeURIComponent(key.slice(4))}" style="font-size:13px;display:inline-flex;align-items:center">Apuntar una apertura</a><a class="pill" href="#/faltas/${encodeURIComponent(key.slice(4))}" style="font-size:13px;display:inline-flex;align-items:center">Lista de faltas</a></div>` : ''}`;
     const bb = headEl.querySelector('[data-bulk]'); if (bb) bb.onclick = () => bulkAlerts(key, cards.filter(c => !COL.cards[c.card_id]).map(c => { const v = (vmap[c.card_id] || []).slice().sort((a, b) => (vPrice(a) ?? 1e9) - (vPrice(b) ?? 1e9))[0]; return v && vPrice(v) ? { key: v.cm_product_id + '|' + (v.variant || ''), card: c.card_id, cm: v.cm_product_id, variant: v.variant, price: vPrice(v), name: c.name } : null; }).filter(Boolean), draw);
     const tile = (e, i, pocket) => {
       const c = e.c, has = owns(e), pr = priceOf(e);
@@ -760,7 +764,7 @@ function wireControls(rerender) {
 
 let SET_TAB = 'cards';
 function viewSet(setId) {
-  const s = q(`SELECT set_id, lang, COALESCE(name_es,name_en,name_ja,name_local) name, serie, release_date, card_count, cm_expansion_id FROM sets WHERE set_id=?`, [setId])[0];
+  const s = q(`SELECT set_id, lang, COALESCE(name_es,name_en,name_ja,name_local) name, serie, release_date, card_count, cm_expansion_id, ${ABBR()} abbr FROM sets s WHERE set_id=?`, [setId])[0];
   if (!s) { $view.innerHTML = '<p>Set no encontrado.</p>'; return; }
   const cards = q(`SELECT c.card_id, c.set_id, c.local_id, ${NAME} name, c.rarity, c.image_base,
     (c.name_es IS NULL AND s.lang='es' AND s.release_date >= '2019') no_es FROM cards c JOIN sets s USING(set_id) WHERE c.set_id=?
@@ -775,7 +779,7 @@ function viewSet(setId) {
   const nHidden = cards.filter(c => (COL.hide || {})[c.card_id] || c.no_es).length;
   $view.innerHTML = `<div class="stack">
     <div class="row"><a href="#/sets" class="pill" style="display:flex;align-items:center">←</a></div>
-    <div class="sethero ${MASTER ? 'master' : ''}"><div class="herologo">${setLogo(ib, 'biglogo', s.name, s.set_id)}${MASTER ? `<span class="mbadge">${ico('crown', 14)} Máster set</span>` : ''}</div><div class="col" style="align-items:center;text-align:center"><h1>${esc(s.name)}</h1><span class="muted">${esc(s.serie)} · ${esc(s.release_date || '')} · ${esc(LANGS[s.lang] || s.lang)}</span></div></div>
+    <div class="sethero ${MASTER ? 'master' : ''}"><div class="herologo">${setLogo(ib, 'biglogo', s.name, s.set_id)}${MASTER ? `<span class="mbadge">${ico('crown', 14)} Máster set</span>` : ''}</div><div class="col" style="align-items:center;text-align:center"><h1>${esc(s.name)}${s.abbr ? ` <span class="abbr big">${esc(s.abbr)}</span>` : ''}</h1><span class="muted">${esc(s.serie)} · ${esc(s.release_date || '')} · ${esc(LANGS[s.lang] || s.lang)}</span></div></div>
     ${sealed.length ? `<div class="tbrow">${seg('stab', [['cards', 'Cartas'], ['sealed', `Sellado · ${sealed.filter(x => { const t = cmSealedType(x); return t && t !== 'other'; }).length}`]], SET_TAB)}<span></span></div>` : ''}
     ${SET_TAB === 'sealed' && sealed.length ? `<div class="sgal sgal1">${sealedGallery(sealed.map(x => Object.assign(x, { cm_expansion_id: s.cm_expansion_id })), ib, s.name)}</div>
       <p class="muted">Fotos: WikiDex. Precio: tendencia en Cardmarket. Toca un producto para ver su evolución, poner tu foto o lo que pagaste.</p></div>` : `
